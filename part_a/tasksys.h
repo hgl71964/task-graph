@@ -2,7 +2,13 @@
 #define _TASKSYS_H
 
 #include "itasksys.h"
+#include <condition_variable>
+#include <mutex>
 #include <thread>
+#include <queue>
+#include <functional>
+#include <chrono>
+#include <iostream>
 #include <assert.h>
 
 /*
@@ -55,6 +61,13 @@ class TaskSystemParallelThreadPoolSpinning: public ITaskSystem {
         TaskID runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
                                 const std::vector<TaskID>& deps);
         void sync();
+
+    private:
+        int num_threads_;
+        bool terminate_;
+        std::queue<std::function<void()>> jobs_{};
+        std::thread* threads_;
+        std::mutex* mutex_;
 };
 
 /*

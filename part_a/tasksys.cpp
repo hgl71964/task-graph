@@ -112,30 +112,90 @@ TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int n
     // Implementations are free to add new class member variables
     // (requiring changes to tasksys.h).
     //
+
+    assert(num_threads > 0);
+    num_threads_ = num_threads;
+    terminate_ = false;
+    mutex_ = new std::mutex();
+    threads_ = new std::thread[num_threads];
+
+    // start thread pool
+    for (auto i = 0; i < num_threads_; ++i) {
+      // need to capture this by reference
+      threads_[i] = std::thread([this] {
+          while (true) {
+            this->mutex_->lock();
+
+            // run jobs
+            if (!this->jobs_.empty()) {
+              auto job = this->jobs_.front();
+              this->jobs_.pop();
+
+              // unlock and run
+              this->mutex_->unlock();
+              job();
+              this->mutex_->lock();
+            }
+
+            // terminate
+            if (this->terminate_ && this->jobs_.empty()) {
+              break;
+            }
+            this->mutex_->unlock();
+          }
+          this->mutex_->unlock();
+          });
+    }
 }
 
-TaskSystemParallelThreadPoolSpinning::~TaskSystemParallelThreadPoolSpinning() {}
+TaskSystemParallelThreadPoolSpinning::~TaskSystemParallelThreadPoolSpinning() {
+	// std::cout << "close out\n" << std::flush;
+	// std::this_thread::sleep_for(std::chrono::milliseconds(5000));
+  // for (auto j = 0; j < num_threads_; ++j)
+  //     threads_[j].join();
+}
 
 void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_total_tasks) {
-
-
     //
     // TODO: CS149 students will modify the implementation of this
     // method in Part A.  The implementation provided below runs all
     // tasks sequentially on the calling thread.
     //
 
-    for (int i = 0; i < num_total_tasks; i++) {
+    // for (int i = 0; i < num_total_tasks; i++) {
+    //     runnable->runTask(i, num_total_tasks);
+    // }
+
+    // std::cout << "start assignment\n" << std::flush;
+		// std::this_thread::sleep_for(std::chrono::milliseconds(5000));
+
+    for (int i = 0; i < num_total_tasks; ++i) {
+      // push jobs (copy by value for all closures)
+      auto fn = [=] () -> void {
         runnable->runTask(i, num_total_tasks);
+      };
+      jobs_.push(fn);
     }
+		// std::cout << "push all\n" << std::flush;
+		// std::this_thread::sleep_for(std::chrono::milliseconds(5000));
+
+    // notify to close
+    terminate_ = true;
+
+    // main thread wait
+    // the test assume after run; all jobs are done; otherwise seg fault
+    for (auto j = 0; j < num_threads_; ++j)
+        threads_[j].join();
 }
 
 TaskID TaskSystemParallelThreadPoolSpinning::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
                                                               const std::vector<TaskID>& deps) {
+		assert(false);
     return 0;
 }
 
 void TaskSystemParallelThreadPoolSpinning::sync() {
+		assert(false);
     return;
 }
 
