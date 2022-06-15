@@ -153,6 +153,8 @@ TaskSystemParallelThreadPoolSpinning::~TaskSystemParallelThreadPoolSpinning() {
 	// std::this_thread::sleep_for(std::chrono::milliseconds(5000));
   // for (auto j = 0; j < num_threads_; ++j)
   //     threads_[j].join();
+  delete[] threads_;
+  delete mutex_;
 }
 
 void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_total_tasks) {
@@ -174,6 +176,9 @@ void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_tota
       auto fn = [=] () -> void {
         runnable->runTask(i, num_total_tasks);
       };
+
+      // XXX don't need a lock to protect jobs_
+      // because the order doesn't matter
       jobs_.push(fn);
     }
 		// std::cout << "push all\n" << std::flush;
@@ -183,7 +188,8 @@ void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_tota
     terminate_ = true;
 
     // main thread wait
-    // NOTE: the test assume after run; all jobs are done; otherwise seg fault
+    // the test assume after run; all jobs are done; otherwise seg fault
+    // FIXME don't destory here, just make sure all jobs done
     for (auto j = 0; j < num_threads_; ++j)
         threads_[j].join();
 }
@@ -211,34 +217,97 @@ const char* TaskSystemParallelThreadPoolSleeping::name() {
 
 TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int num_threads): ITaskSystem(num_threads) {
     //
-    // TODO: CS149 student implementations may decide to perform setup
+    // CS149 student implementations may decide to perform setup
     // operations (such as thread pool construction) here.
     // Implementations are free to add new class member variables
     // (requiring changes to tasksys.h).
     //
+
+    assert(num_threads > 0);
+    num_threads_ = num_threads;
+    terminate_ = false;
+    mutex_ = new std::mutex();
+    threads_ = new std::thread[num_threads];
+    condition_variable_ = new std::condition_variable();
+
+    // start thread pool
+    for (auto i = 0; i < num_threads_; ++i) {
+      // need to capture this by reference
+      threads_[i] = std::thread([this] {
+          // get lock first
+          std::unique_lock<std::mutex> lk(*(this->mutex_));
+
+          // thread pool loop
+          while (true) {
+            if (this->jobs_.empty()) {
+              this->condition_variable_->wait(lk);
+            } else {
+              // run jobs
+              if (!this->jobs_.empty()) {
+                auto job = this->jobs_.front();
+                this->jobs_.pop();
+
+                // TODO unlock and run
+                job();
+              }
+            }
+
+            // terminate
+            if (this->terminate_) {
+              assert(this->jobs_.empty());
+              break;
+            }
+          }
+
+          // exit release lock
+          lk.unlock();
+          });
+    }
 }
 
 TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
     //
-    // TODO: CS149 student implementations may decide to perform cleanup
+    // CS149 student implementations may decide to perform cleanup
     // operations (such as thread pool shutdown construction) here.
     // Implementations are free to add new class member variables
     // (requiring changes to tasksys.h).
     //
+
+    // shut down thread pool TODO need lock?
+    terminate_ = true;
+    condition_variable_->notify_all();
+    for (auto j = 0; j < num_threads_; ++j)
+        threads_[j].join();
+
+    delete[] threads_;
+    delete mutex_;
+    delete condition_variable_;
 }
 
 void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_total_tasks) {
 
 
     //
-    // TODO: CS149 students will modify the implementation of this
+    // CS149 students will modify the implementation of this
     // method in Parts A and B.  The implementation provided below runs all
     // tasks sequentially on the calling thread.
     //
 
-    for (int i = 0; i < num_total_tasks; i++) {
+    std::unique_lock<std::mutex> lk(*mutex_);
+    for (int i = 0; i < num_total_tasks; ++i) {
+      // push jobs (copy by value for all closures)
+      auto fn = [=] () -> void {
         runnable->runTask(i, num_total_tasks);
+      };
+      jobs_.push(fn);
     }
+
+    // if all jobs in this run done, return
+    while (!jobs_.empty()) {
+      condition_variable_->notify_all();
+      condition_variable_->wait(lk); // FIXME i need someone wake me up!
+    }
+    lk.unlock();
 }
 
 TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
@@ -248,6 +317,7 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
     //
     // TODO: CS149 students will implement this method in Part B.
     //
+    assert(false);
 
     return 0;
 }
@@ -258,5 +328,6 @@ void TaskSystemParallelThreadPoolSleeping::sync() {
     // TODO: CS149 students will modify the implementation of this method in Part B.
     //
 
+    assert(false);
     return;
 }
