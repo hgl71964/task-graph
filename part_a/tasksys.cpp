@@ -74,17 +74,26 @@ void TaskSystemParallelSpawn::run(IRunnable* runnable, int num_total_tasks) {
     //     runnable->runTask(i, num_total_tasks);
     // }
 
-    std::thread threads[num_total_tasks];
-    auto fn = [] (IRunnable *runnable, int idx, int num_total_tasks) -> void {
-      runnable->runTask(idx, num_total_tasks);
-    };
-    // we cannot run more than num_threads_ at a time
-    for (int i = 0; i < num_total_tasks; i += num_threads_) {
-      for (int j = i; j < i + num_threads_ && j < num_total_tasks; ++j)
-          threads[j] = std::thread(fn, runnable, j, num_total_tasks);
-      for (int j = i; j < i + num_threads_ && j < num_total_tasks; ++j)
-          threads[j].join();
+    std::thread threads[num_threads_-1];
+    int work_per_thread = num_total_tasks / num_threads_;
+
+    // launch
+    for (auto j = 1; j < num_threads_; ++j)
+        threads[j-1] = std::thread([&, j]{
+        for (auto i = j * work_per_thread;
+              i < std::min((j * work_per_thread + (j+1) * work_per_thread), num_total_tasks); ++i) {
+              runnable->runTask(i, num_total_tasks);
+          }
+    });
+
+    // main thread
+    for (auto i = 0; i <  work_per_thread; ++i) {
+        runnable->runTask(i, num_total_tasks);
     }
+
+    //stop
+    for (auto j = 0; j < num_threads_-1; ++j)
+        threads[j].join();
 }
 
 TaskID TaskSystemParallelSpawn::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
@@ -125,32 +134,32 @@ TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int n
     threads_ = new std::thread[num_threads];
 
     // start thread pool
-    for (auto i = 0; i < num_threads_; ++i) {
-      // need to capture this by reference
-      threads_[i] = std::thread([this] {
-          while (true) {
-            this->mutex_->lock();
+    // for (auto i = 0; i < num_threads_; ++i) {
+    //   // need to capture this by reference
+    //   threads_[i] = std::thread([this] {
+    //       while (true) {
+    //         this->mutex_->lock();
 
-            // run jobs
-            if (!this->jobs_.empty()) {
-              auto job = this->jobs_.front();
-              this->jobs_.pop();
+    //         // run jobs
+    //         if (!this->jobs_.empty()) {
+    //           auto job = this->jobs_.front();
+    //           this->jobs_.pop();
 
-              // unlock and run
-              this->mutex_->unlock();
-              job();
-              this->mutex_->lock();
-            }
+    //           // unlock and run
+    //           this->mutex_->unlock();
+    //           job();
+    //           this->mutex_->lock();
+    //         }
 
-            // terminate
-            if (this->terminate_ && this->jobs_.empty()) {
-              break;
-            }
-            this->mutex_->unlock();
-          }
-          this->mutex_->unlock();
-          });
-    }
+    //         // terminate
+    //         if (this->terminate_ && this->jobs_.empty()) {
+    //           break;
+    //         }
+    //         this->mutex_->unlock();
+    //       }
+    //       this->mutex_->unlock();
+    //       });
+    // }
 }
 
 TaskSystemParallelThreadPoolSpinning::~TaskSystemParallelThreadPoolSpinning() {
@@ -158,11 +167,11 @@ TaskSystemParallelThreadPoolSpinning::~TaskSystemParallelThreadPoolSpinning() {
 	// std::this_thread::sleep_for(std::chrono::milliseconds(5000));
 
   // notify to close
-  terminate_ = true;
-  for (auto j = 0; j < num_threads_; ++j)
-      threads_[j].join();
-  delete[] threads_;
-  delete mutex_;
+  // terminate_ = true;
+  // for (auto j = 0; j < num_threads_; ++j)
+  //     threads_[j].join();
+  // delete[] threads_;
+  // delete mutex_;
 }
 
 void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_total_tasks) {
@@ -172,36 +181,36 @@ void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_tota
     // tasks sequentially on the calling thread.
     //
 
-    // for (int i = 0; i < num_total_tasks; i++) {
-    //     runnable->runTask(i, num_total_tasks);
-    // }
+    for (int i = 0; i < num_total_tasks; i++) {
+        runnable->runTask(i, num_total_tasks);
+    }
 
     // std::cout << "start assignment\n" << std::flush;
 		// std::this_thread::sleep_for(std::chrono::milliseconds(5000));
 
     // lock to assign jobs
-    this->mutex_->lock();
-    for (int i = 0; i < num_total_tasks; ++i) {
-      // push jobs (copy by value for all closures)
-      auto fn = [=] () -> void {
-        runnable->runTask(i, num_total_tasks);
-      };
-      jobs_.push(fn);
-    }
-    // unlock to let jobs run
-    this->mutex_->unlock();
+    // this->mutex_->lock();
+    // for (int i = 0; i < num_total_tasks; ++i) {
+    //   // push jobs (copy by value for all closures)
+    //   auto fn = [=] () -> void {
+    //     runnable->runTask(i, num_total_tasks);
+    //   };
+    //   jobs_.push(fn);
+    // }
+    // // unlock to let jobs run
+    // this->mutex_->unlock();
 
-    // sleep for a while for jobs to be executed
-		std::this_thread::sleep_for(std::chrono::milliseconds(sleep_time_));
+    // // sleep for a while for jobs to be executed
+		// std::this_thread::sleep_for(std::chrono::milliseconds(sleep_time_));
 
-    // MUST ensure all jobs done for this run
-    this->mutex_->lock();
-    while (!jobs_.empty()) {
-      this->mutex_->unlock();
-      std::this_thread::sleep_for(std::chrono::milliseconds(sleep_time_));
-      this->mutex_->lock();
-    }
-    this->mutex_->unlock();
+    // // MUST ensure all jobs done for this run
+    // this->mutex_->lock();
+    // while (!jobs_.empty()) {
+    //   this->mutex_->unlock();
+    //   std::this_thread::sleep_for(std::chrono::milliseconds(sleep_time_));
+    //   this->mutex_->lock();
+    // }
+    // this->mutex_->unlock();
 }
 
 TaskID TaskSystemParallelThreadPoolSpinning::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
@@ -245,34 +254,34 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
     chan_mutex_ = new std::mutex();
 
     // start thread pool
-    for (auto i = 0; i < num_threads_; ++i) {
-      threads_[i] = std::thread([this] {
-          // get lock first
-          std::unique_lock<std::mutex> lk(*(this->mutex_));
+    // for (auto i = 0; i < num_threads_; ++i) {
+    //   threads_[i] = std::thread([this] {
+    //       // get lock first
+    //       std::unique_lock<std::mutex> lk(*(this->mutex_));
 
-          // thread pool loop
-          while (true) {
-            if (this->jobs_.empty()) {
-              this->chan_cv_->notify_all();
-              this->condition_variable_->wait(lk);
-            } else {
-              auto job = this->jobs_.front();
-              this->jobs_.pop();
-              lk.unlock();
-              job();
-              lk.lock();
-            }
+    //       // thread pool loop
+    //       while (true) {
+    //         if (this->jobs_.empty()) {
+    //           this->chan_cv_->notify_all();
+    //           this->condition_variable_->wait(lk);
+    //         } else {
+    //           auto job = this->jobs_.front();
+    //           this->jobs_.pop();
+    //           lk.unlock();
+    //           job();
+    //           lk.lock();
+    //         }
 
-            // terminate
-            if (this->terminate_) {
-              break;
-            }
-          }
+    //         // terminate
+    //         if (this->terminate_) {
+    //           break;
+    //         }
+    //       }
 
-          // exit release lock
-          lk.unlock();
-          });
-    }
+    //       // exit release lock
+    //       lk.unlock();
+    //       });
+    // }
 }
 
 TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
@@ -282,16 +291,16 @@ TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
     // Implementations are free to add new class member variables
     // (requiring changes to tasksys.h).
     //
-    terminate_ = true;
-    condition_variable_->notify_all();
-    for (auto j = 0; j < num_threads_; ++j)
-        threads_[j].join();
+    // terminate_ = true;
+    // condition_variable_->notify_all();
+    // for (auto j = 0; j < num_threads_; ++j)
+    //     threads_[j].join();
 
-    delete[] threads_;
-    delete mutex_;
-    delete condition_variable_;
-    delete chan_mutex_;
-    delete chan_cv_;
+    // delete[] threads_;
+    // delete mutex_;
+    // delete condition_variable_;
+    // delete chan_mutex_;
+    // delete chan_cv_;
 }
 
 void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_total_tasks) {
@@ -303,30 +312,30 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
     // tasks sequentially on the calling thread.
     //
     //
-    // for (int i = 0; i < num_total_tasks; i++) {
+    for (int i = 0; i < num_total_tasks; i++) {
+        runnable->runTask(i, num_total_tasks);
+    }
+
+    // std::unique_lock<std::mutex> lk(*mutex_);
+    // std::unique_lock<std::mutex> chan_lk(*chan_mutex_);
+    // for (int i = 0; i < num_total_tasks; ++i) {
+    //   auto fn = [=] () -> void {
     //     runnable->runTask(i, num_total_tasks);
+    //   };
+    //   jobs_.push(fn);
     // }
 
-    std::unique_lock<std::mutex> lk(*mutex_);
-    std::unique_lock<std::mutex> chan_lk(*chan_mutex_);
-    for (int i = 0; i < num_total_tasks; ++i) {
-      auto fn = [=] () -> void {
-        runnable->runTask(i, num_total_tasks);
-      };
-      jobs_.push(fn);
-    }
+    // // if all jobs in this run done, return
+    // while (!jobs_.empty()) {
+    //   condition_variable_->notify_all();
+    //   lk.unlock();
 
-    // if all jobs in this run done, return
-    while (!jobs_.empty()) {
-      condition_variable_->notify_all();
-      lk.unlock();
-
-      // sleep on channel to wait
-      chan_cv_->wait_for(chan_lk, std::chrono::milliseconds(1000));
-      lk.lock();
-    }
-    chan_lk.unlock();
-    lk.unlock();
+    //   // sleep on channel to wait
+    //   chan_cv_->wait_for(chan_lk, std::chrono::milliseconds(1000));
+    //   lk.lock();
+    // }
+    // chan_lk.unlock();
+    // lk.unlock();
 }
 
 TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,

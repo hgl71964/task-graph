@@ -10,6 +10,7 @@
 #include <chrono>
 #include <iostream>
 #include <assert.h>
+#include <algorithm>
 
 /*
  * TaskSystemSerial: This class is the student's implementation of a
