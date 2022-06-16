@@ -74,20 +74,41 @@ void TaskSystemParallelSpawn::run(IRunnable* runnable, int num_total_tasks) {
     //     runnable->runTask(i, num_total_tasks);
     // }
 
-    std::thread threads[num_threads_-1];
-    int work_per_thread = num_total_tasks / num_threads_;
+    // THIS DOESN'T CONSIDER CACHE EFFICIENCY
+    // std::thread threads[num_threads_-1];
+    // int work_per_thread = num_total_tasks / num_threads_;
+
+    // // launch
+    // for (auto j = 1; j < num_threads_; ++j)
+    //     threads[j-1] = std::thread([&, j]{
+    //     for (auto i = j * work_per_thread;
+    //           i < std::min((j * work_per_thread + (j+1) * work_per_thread), num_total_tasks); ++i) {
+    //           runnable->runTask(i, num_total_tasks);
+    //       }
+    // });
+
+    // // main thread
+    // for (auto i = 0; i <  work_per_thread; ++i) {
+    //     runnable->runTask(i, num_total_tasks);
+    // }
+
+    // //stop
+    // for (auto j = 0; j < num_threads_-1; ++j)
+    //     threads[j].join();
+
+    // bulk launch with data locality
+    std::thread threads[num_threads_ - 1];
 
     // launch
-    for (auto j = 1; j < num_threads_; ++j)
-        threads[j-1] = std::thread([&, j]{
-        for (auto i = j * work_per_thread;
-              i < std::min((j * work_per_thread + (j+1) * work_per_thread), num_total_tasks); ++i) {
+    for (auto j = 0; j < num_threads_ - 1; ++j)
+        threads[j] = std::thread([&, j]{
+        for (auto i = j; i < num_total_tasks; i += num_threads_) {
               runnable->runTask(i, num_total_tasks);
           }
     });
 
     // main thread
-    for (auto i = 0; i <  work_per_thread; ++i) {
+    for (auto i = num_threads_ - 1; i <  num_total_tasks; i += num_threads_) {
         runnable->runTask(i, num_total_tasks);
     }
 
