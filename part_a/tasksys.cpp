@@ -148,9 +148,9 @@ TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int n
     //
 
     assert(num_threads > 0);
-    sleep_time_ = 30;
     num_threads_ = num_threads;
     terminate_ = false;
+    last_one_ = false;
     mutex_ = new std::mutex();
     threads_ = new std::thread[num_threads];
 
@@ -167,18 +167,23 @@ TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int n
               this->jobs_.pop();
 
               // unlock and run
-              this->mutex_->unlock();
+              // this->mutex_->unlock();
               job();
-              this->mutex_->lock();
+              // this->mutex_->lock();
+
+              // mark the last job has finished
+              if (this->jobs_.empty()) {
+                this->last_one_ = true;
+              }
             }
+
+            this->mutex_->unlock();
 
             // terminate
             if (this->terminate_) {
               break;
             }
-            this->mutex_->unlock();
           }
-          this->mutex_->unlock();
           });
     }
 
@@ -241,6 +246,7 @@ void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_tota
 
     // lock to assign jobs
     this->mutex_->lock();
+    last_one_ = false;
     for (int i = 0; i < num_total_tasks; ++i) {
       // push jobs (copy by value for all closures)
       auto fn = [=] () -> void {
@@ -248,15 +254,20 @@ void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_tota
       };
       jobs_.push(fn);
     }
-
-    while (!jobs_.empty()) {
-      this->mutex_->unlock();
-      std::this_thread::sleep_for(std::chrono::milliseconds(100));
-      this->mutex_->lock();
-    }
     this->mutex_->unlock();
 
+    // while (!jobs_.empty()) {
+    //   this->mutex_->unlock();
+    //   std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    //   this->mutex_->lock();
+    // }
+    // this->mutex_->unlock();
+
     // MUST ensure all jobs done for this run
+    while (!last_one_) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
     // std::unique_lock<std::mutex> chan_lk(*chan_mutex_);
     // while (!jobs_.empty()) {
     //   this->mutex_->unlock();
