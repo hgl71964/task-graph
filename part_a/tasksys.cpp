@@ -150,7 +150,7 @@ TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int n
     assert(num_threads > 0);
     num_threads_ = num_threads;
     terminate_ = false;
-    last_one_ = false;
+    last_one_done_ = false;
     mutex_ = new std::mutex();
     threads_ = new std::thread[num_threads];
 
@@ -166,14 +166,19 @@ TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int n
               auto job = this->jobs_.front();
               this->jobs_.pop();
 
+              bool last_one = false;
+              if (this->jobs_.empty()) {
+                last_one = true;
+              }
+
               // unlock and run
-              // this->mutex_->unlock();
+              this->mutex_->unlock();
               job();
-              // this->mutex_->lock();
+              this->mutex_->lock();
 
               // mark the last job has finished
-              if (this->jobs_.empty()) {
-                this->last_one_ = true;
+              if (last_one) {
+                this->last_one_done_ = true;
               }
             }
 
@@ -246,7 +251,7 @@ void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_tota
 
     // lock to assign jobs
     this->mutex_->lock();
-    last_one_ = false;
+    last_one_done_ = false;
     for (int i = 0; i < num_total_tasks; ++i) {
       // push jobs (copy by value for all closures)
       auto fn = [=] () -> void {
@@ -264,7 +269,7 @@ void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_tota
     // this->mutex_->unlock();
 
     // MUST ensure all jobs done for this run
-    while (!last_one_) {
+    while (!last_one_done_) {
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 

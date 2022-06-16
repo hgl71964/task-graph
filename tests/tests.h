@@ -154,7 +154,7 @@ class MathOperationsInTightForLoopTask: public IRunnable {
         int array_size_;
         MathOperationsInTightForLoopTask(int array_size, float* output) {
             array_size_ = array_size;
-            output_ = output; 
+            output_ = output;
         }
         ~MathOperationsInTightForLoopTask() {}
 
@@ -214,7 +214,7 @@ class ReduceTask: public IRunnable {
 };
 
 /*
- * Each task computes a number of rows of the output Mandelbrot image.  
+ * Each task computes a number of rows of the output Mandelbrot image.
  * These rows either form a contiguous chunk of the image (if
  * interleave is false) or are interleaved throughout the image.
  */
@@ -232,7 +232,7 @@ class MandelbrotTask: public IRunnable {
         MandelArgs *args_;
 		int interleave_;
 
-        MandelbrotTask(MandelArgs *args, int interleave) 
+        MandelbrotTask(MandelArgs *args, int interleave)
           : args_(args), interleave_(interleave) {}
         ~MandelbrotTask() {}
 
@@ -299,7 +299,7 @@ class MandelbrotTask: public IRunnable {
                 }
             }
         }
-    
+
         void runTask(int task_id, int num_total_tasks) {
             int rowsPerTask = args_->height / num_total_tasks;
 
@@ -391,7 +391,7 @@ class StrictDependencyTask: public IRunnable {
         ~StrictDependencyTask() {}
 };
 
-/* 
+/*
  * ==================================================================
  *   Begin test definitions
  * ==================================================================
@@ -410,7 +410,7 @@ TestResults pingPongTest(ITaskSystem* t, bool equal_work, bool do_async,
                          int num_elements, int base_iters) {
 
     int num_tasks = 64;
-    int num_bulk_task_launches = 400;   
+    int num_bulk_task_launches = 400;
 
     int* input = new int[num_elements];
     int* output = new int[num_elements];
@@ -460,7 +460,7 @@ TestResults pingPongTest(ITaskSystem* t, bool equal_work, bool do_async,
     results.passed = true;
 
     // Number of ping-pongs determines which buffer to look at for the results
-    int* buffer = (num_bulk_task_launches % 2 == 1) ? output : input; 
+    int* buffer = (num_bulk_task_launches % 2 == 1) ? output : input;
 
     for (int i=0; i<num_elements; i++) {
         int value = i;
@@ -483,7 +483,7 @@ TestResults pingPongTest(ITaskSystem* t, bool equal_work, bool do_async,
     delete [] output;
     for (int i=0; i<num_bulk_task_launches; i++)
         delete runnables[i];
-    
+
     return results;
 }
 
@@ -570,7 +570,7 @@ TestResults recursiveFibonacciTestBase(ITaskSystem* t, bool do_async) {
     }
     double end_time = CycleTimer::currentSeconds();
 
-    // Validate correctness 
+    // Validate correctness
     TestResults result;
     result.passed = true;
     for (int i = 0; i < num_tasks; i++) {
@@ -1002,7 +1002,7 @@ TestResults spinBetweenRunCallsAsyncTest(ITaskSystem *t) {
 TestResults mandelbrotChunkedTestBase(ITaskSystem* t, bool do_async) {
 
     int num_tasks = 128;
-    
+
     MandelbrotTask::MandelArgs ma;
     ma.x0 = -2;
     ma.x1 = 1;
@@ -1045,7 +1045,7 @@ TestResults mandelbrotChunkedTestBase(ITaskSystem* t, bool do_async) {
             result.passed = false;
         }
     }
-    
+
     result.time = end_time - start_time;
 
     delete [] golden;
@@ -1077,7 +1077,7 @@ TestResults simpleRunDepsTest(ITaskSystem *t) {
     std::vector<TaskID> b_deps;
     std::vector<TaskID> c_deps;
 
-    
+
     double start_time = CycleTimer::currentSeconds();
     auto a_taskid = t->runAsyncWithDeps(a, 10, a_deps);
 
@@ -1141,7 +1141,7 @@ TestResults strictDiamondDepsTest(ITaskSystem *t) {
 
     t->sync();
     double end_time = CycleTimer::currentSeconds();
-    
+
     TestResults result;
     result.passed = done[3];
     result.time = end_time - start_time;
@@ -1207,7 +1207,7 @@ TestResults strictGraphDepsTestBase(ITaskSystem*t, int n, int m, unsigned int se
     }
     t->sync();
     double end_time = CycleTimer::currentSeconds();
-    
+
     TestResults result;
     result.passed = done[n-1];
     result.time = end_time - start_time;
