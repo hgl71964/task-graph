@@ -114,6 +114,7 @@ TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int n
     //
 
     assert(num_threads > 0);
+    sleep_time_ = 30;
     num_threads_ = num_threads;
     terminate_ = false;
     mutex_ = new std::mutex();
@@ -151,8 +152,11 @@ TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int n
 TaskSystemParallelThreadPoolSpinning::~TaskSystemParallelThreadPoolSpinning() {
 	// std::cout << "close out\n" << std::flush;
 	// std::this_thread::sleep_for(std::chrono::milliseconds(5000));
-  // for (auto j = 0; j < num_threads_; ++j)
-  //     threads_[j].join();
+
+  // notify to close
+  terminate_ = true;
+  for (auto j = 0; j < num_threads_; ++j)
+      threads_[j].join();
   delete[] threads_;
   delete mutex_;
 }
@@ -171,27 +175,29 @@ void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_tota
     // std::cout << "start assignment\n" << std::flush;
 		// std::this_thread::sleep_for(std::chrono::milliseconds(5000));
 
+    // lock to assign jobs
+    this->mutex_->lock();
     for (int i = 0; i < num_total_tasks; ++i) {
       // push jobs (copy by value for all closures)
       auto fn = [=] () -> void {
         runnable->runTask(i, num_total_tasks);
       };
-
-      // XXX don't need a lock to protect jobs_
-      // because the order doesn't matter
       jobs_.push(fn);
     }
-		// std::cout << "push all\n" << std::flush;
-		// std::this_thread::sleep_for(std::chrono::milliseconds(5000));
+    // unlock to let jobs run
+    this->mutex_->unlock();
 
-    // notify to close
-    terminate_ = true;
+    // sleep for a while for jobs to be executed
+		std::this_thread::sleep_for(std::chrono::milliseconds(sleep_time_));
 
-    // main thread wait
-    // the test assume after run; all jobs are done; otherwise seg fault
-    // FIXME don't destory here, just make sure all jobs done
-    for (auto j = 0; j < num_threads_; ++j)
-        threads_[j].join();
+    // MUST ensure all jobs done for this run
+    this->mutex_->lock();
+    while (!jobs_.empty()) {
+      this->mutex_->unlock();
+      std::this_thread::sleep_for(std::chrono::milliseconds(sleep_time_));
+      this->mutex_->lock();
+    }
+    this->mutex_->unlock();
 }
 
 TaskID TaskSystemParallelThreadPoolSpinning::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
@@ -292,22 +298,27 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
     // method in Parts A and B.  The implementation provided below runs all
     // tasks sequentially on the calling thread.
     //
-
-    std::unique_lock<std::mutex> lk(*mutex_);
-    for (int i = 0; i < num_total_tasks; ++i) {
-      // push jobs (copy by value for all closures)
-      auto fn = [=] () -> void {
+    //
+    for (int i = 0; i < num_total_tasks; i++) {
         runnable->runTask(i, num_total_tasks);
-      };
-      jobs_.push(fn);
     }
 
-    // if all jobs in this run done, return
-    while (!jobs_.empty()) {
-      condition_variable_->notify_all();
-      condition_variable_->wait(lk); // FIXME i need someone wake me up!
-    }
-    lk.unlock();
+
+    // std::unique_lock<std::mutex> lk(*mutex_);
+    // for (int i = 0; i < num_total_tasks; ++i) {
+    //   // push jobs (copy by value for all closures)
+    //   auto fn = [=] () -> void {
+    //     runnable->runTask(i, num_total_tasks);
+    //   };
+    //   jobs_.push(fn);
+    // }
+
+    // // if all jobs in this run done, return
+    // while (!jobs_.empty()) {
+    //   condition_variable_->notify_all();
+    //   condition_variable_->wait(lk); // FIXME i need someone wake me up!
+    // }
+    // lk.unlock();
 }
 
 TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
