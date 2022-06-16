@@ -169,8 +169,8 @@ TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int n
               // unlock and run
               this->mutex_->unlock();
               job();
-              this->mutex_->lock();
-              this->task_cnt_++;
+              this->task_cnt_++;  // atomic udate
+              continue;
             }
             this->mutex_->unlock();
 
@@ -245,12 +245,15 @@ void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_tota
     task_cnt_ = 0;
     this->mutex_->unlock();
 
-    // push jobs (copy by value for all closures)
+    // push jobs
     for (int i = 0; i < num_total_tasks; ++i) {
-      auto fn = [=] () -> void {
+      // auto fn = [=] () -> void {
+      //   runnable->runTask(i, num_total_tasks);
+      // };
+      // jobs_.push(fn);
+      jobs_.push([&, i] () -> void {
         runnable->runTask(i, num_total_tasks);
-      };
-      jobs_.push(fn);
+      });
     }
 
     // while (!jobs_.empty()) {

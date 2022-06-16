@@ -11,6 +11,7 @@
 #include <iostream>
 #include <assert.h>
 #include <algorithm>
+#include <atomic>
 
 /*
  * TaskSystemSerial: This class is the student's implementation of a
@@ -65,14 +66,12 @@ class TaskSystemParallelThreadPoolSpinning: public ITaskSystem {
 
     private:
         int num_threads_;
-        int task_cnt_;
+        // int task_cnt_;
+        std::atomic<int> task_cnt_;
         bool terminate_;
         std::queue<std::function<void()>> jobs_{};
         std::thread* threads_;
         std::mutex* mutex_;
-
-        std::mutex* chan_mutex_;
-        std::condition_variable* chan_cv_;
 };
 
 /*
