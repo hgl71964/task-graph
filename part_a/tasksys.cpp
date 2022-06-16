@@ -170,9 +170,8 @@ TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int n
               this->mutex_->unlock();
               job();
               this->mutex_->lock();
-              task_cnt_++;
+              this->task_cnt_++;
             }
-
             this->mutex_->unlock();
 
             // terminate
@@ -242,15 +241,17 @@ void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_tota
 
     // lock to assign jobs
     this->mutex_->lock();
+    assert(jobs_.empty());
     task_cnt_ = 0;
+    this->mutex_->unlock();
+
+    // push jobs (copy by value for all closures)
     for (int i = 0; i < num_total_tasks; ++i) {
-      // push jobs (copy by value for all closures)
       auto fn = [=] () -> void {
         runnable->runTask(i, num_total_tasks);
       };
       jobs_.push(fn);
     }
-    this->mutex_->unlock();
 
     // while (!jobs_.empty()) {
     //   this->mutex_->unlock();
