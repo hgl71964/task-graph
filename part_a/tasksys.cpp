@@ -29,10 +29,12 @@ void TaskSystemSerial::run(IRunnable* runnable, int num_total_tasks) {
 
 TaskID TaskSystemSerial::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
                                           const std::vector<TaskID>& deps) {
+    assert(false);
     return 0;
 }
 
 void TaskSystemSerial::sync() {
+    assert(false);
     return;
 }
 
@@ -87,10 +89,12 @@ void TaskSystemParallelSpawn::run(IRunnable* runnable, int num_total_tasks) {
 
 TaskID TaskSystemParallelSpawn::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
                                                  const std::vector<TaskID>& deps) {
+    assert(false);
     return 0;
 }
 
 void TaskSystemParallelSpawn::sync() {
+    assert(false);
     return;
 }
 
