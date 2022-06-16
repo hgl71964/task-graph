@@ -70,6 +70,9 @@ class TaskSystemParallelThreadPoolSpinning: public ITaskSystem {
         std::queue<std::function<void()>> jobs_{};
         std::thread* threads_;
         std::mutex* mutex_;
+
+        std::mutex* chan_mutex_;
+        std::condition_variable* chan_cv_;
 };
 
 /*

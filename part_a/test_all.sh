@@ -2,7 +2,7 @@
 
 set -e # stop on any error
 
-num_threads=20
+num_threads=4
 
 #Declare a string array
 tests=(

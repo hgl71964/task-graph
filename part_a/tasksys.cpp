@@ -155,14 +155,43 @@ TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int n
     threads_ = new std::thread[num_threads];
 
     // start thread pool
+    for (auto i = 0; i < num_threads_; ++i) {
+      // need to capture this by reference
+      threads_[i] = std::thread([this] {
+          while (true) {
+            this->mutex_->lock();
+
+            // run jobs
+            if (!this->jobs_.empty()) {
+              auto job = this->jobs_.front();
+              this->jobs_.pop();
+
+              // unlock and run
+              this->mutex_->unlock();
+              job();
+              this->mutex_->lock();
+            }
+
+            // terminate
+            if (this->terminate_) {
+              break;
+            }
+            this->mutex_->unlock();
+          }
+          this->mutex_->unlock();
+          });
+    }
+
+    // chan_cv_ = new std::condition_variable();
+    // chan_mutex_ = new std::mutex();
     // for (auto i = 0; i < num_threads_; ++i) {
-    //   // need to capture this by reference
     //   threads_[i] = std::thread([this] {
     //       while (true) {
     //         this->mutex_->lock();
 
-    //         // run jobs
-    //         if (!this->jobs_.empty()) {
+    //         if (this->jobs_.empty()) {
+    //           this->chan_cv_->notify_all();
+    //         } else {
     //           auto job = this->jobs_.front();
     //           this->jobs_.pop();
 
@@ -172,8 +201,9 @@ TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int n
     //           this->mutex_->lock();
     //         }
 
+
     //         // terminate
-    //         if (this->terminate_ && this->jobs_.empty()) {
+    //         if (this->terminate_) {
     //           break;
     //         }
     //         this->mutex_->unlock();
@@ -188,11 +218,11 @@ TaskSystemParallelThreadPoolSpinning::~TaskSystemParallelThreadPoolSpinning() {
 	// std::this_thread::sleep_for(std::chrono::milliseconds(5000));
 
   // notify to close
-  // terminate_ = true;
-  // for (auto j = 0; j < num_threads_; ++j)
-  //     threads_[j].join();
-  // delete[] threads_;
-  // delete mutex_;
+  terminate_ = true;
+  for (auto j = 0; j < num_threads_; ++j)
+      threads_[j].join();
+  delete[] threads_;
+  delete mutex_;
 }
 
 void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_total_tasks) {
@@ -202,35 +232,38 @@ void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_tota
     // tasks sequentially on the calling thread.
     //
 
-    for (int i = 0; i < num_total_tasks; i++) {
-        runnable->runTask(i, num_total_tasks);
-    }
+    // for (int i = 0; i < num_total_tasks; i++) {
+    //     runnable->runTask(i, num_total_tasks);
+    // }
 
     // std::cout << "start assignment\n" << std::flush;
 		// std::this_thread::sleep_for(std::chrono::milliseconds(5000));
 
     // lock to assign jobs
-    // this->mutex_->lock();
-    // for (int i = 0; i < num_total_tasks; ++i) {
-    //   // push jobs (copy by value for all closures)
-    //   auto fn = [=] () -> void {
-    //     runnable->runTask(i, num_total_tasks);
-    //   };
-    //   jobs_.push(fn);
-    // }
-    // // unlock to let jobs run
-    // this->mutex_->unlock();
+    this->mutex_->lock();
+    for (int i = 0; i < num_total_tasks; ++i) {
+      // push jobs (copy by value for all closures)
+      auto fn = [=] () -> void {
+        runnable->runTask(i, num_total_tasks);
+      };
+      jobs_.push(fn);
+    }
 
-    // // sleep for a while for jobs to be executed
-		// std::this_thread::sleep_for(std::chrono::milliseconds(sleep_time_));
+    while (!jobs_.empty()) {
+      this->mutex_->unlock();
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      this->mutex_->lock();
+    }
+    this->mutex_->unlock();
 
-    // // MUST ensure all jobs done for this run
-    // this->mutex_->lock();
+    // MUST ensure all jobs done for this run
+    // std::unique_lock<std::mutex> chan_lk(*chan_mutex_);
     // while (!jobs_.empty()) {
     //   this->mutex_->unlock();
-    //   std::this_thread::sleep_for(std::chrono::milliseconds(sleep_time_));
+    //   chan_cv_->wait_for(chan_lk, std::chrono::milliseconds(1000));
     //   this->mutex_->lock();
     // }
+    // chan_lk.unlock();
     // this->mutex_->unlock();
 }
 
