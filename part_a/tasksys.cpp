@@ -236,9 +236,12 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
     threads_ = new std::thread[num_threads];
     condition_variable_ = new std::condition_variable();
 
+    // dedicated for channel sync for the `run` thread
+    chan_cv_ = new std::condition_variable();
+    chan_mutex_ = new std::mutex();
+
     // start thread pool
     for (auto i = 0; i < num_threads_; ++i) {
-      // need to capture this by reference
       threads_[i] = std::thread([this] {
           // get lock first
           std::unique_lock<std::mutex> lk(*(this->mutex_));
@@ -246,21 +249,18 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
           // thread pool loop
           while (true) {
             if (this->jobs_.empty()) {
+              this->chan_cv_->notify_all();
               this->condition_variable_->wait(lk);
             } else {
-              // run jobs
-              if (!this->jobs_.empty()) {
-                auto job = this->jobs_.front();
-                this->jobs_.pop();
-
-                // TODO unlock and run
-                job();
-              }
+              auto job = this->jobs_.front();
+              this->jobs_.pop();
+              lk.unlock();
+              job();
+              lk.lock();
             }
 
             // terminate
             if (this->terminate_) {
-              assert(this->jobs_.empty());
               break;
             }
           }
@@ -278,8 +278,6 @@ TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
     // Implementations are free to add new class member variables
     // (requiring changes to tasksys.h).
     //
-
-    // shut down thread pool TODO need lock?
     terminate_ = true;
     condition_variable_->notify_all();
     for (auto j = 0; j < num_threads_; ++j)
@@ -299,26 +297,30 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
     // tasks sequentially on the calling thread.
     //
     //
-    for (int i = 0; i < num_total_tasks; i++) {
+    // for (int i = 0; i < num_total_tasks; i++) {
+    //     runnable->runTask(i, num_total_tasks);
+    // }
+
+    std::unique_lock<std::mutex> lk(*mutex_);
+    std::unique_lock<std::mutex> chan_lk(*chan_mutex_);
+    for (int i = 0; i < num_total_tasks; ++i) {
+      auto fn = [=] () -> void {
         runnable->runTask(i, num_total_tasks);
+      };
+      jobs_.push(fn);
     }
 
+    // if all jobs in this run done, return
+    while (!jobs_.empty()) {
+      condition_variable_->notify_all();
+      lk.unlock();
 
-    // std::unique_lock<std::mutex> lk(*mutex_);
-    // for (int i = 0; i < num_total_tasks; ++i) {
-    //   // push jobs (copy by value for all closures)
-    //   auto fn = [=] () -> void {
-    //     runnable->runTask(i, num_total_tasks);
-    //   };
-    //   jobs_.push(fn);
-    // }
-
-    // // if all jobs in this run done, return
-    // while (!jobs_.empty()) {
-    //   condition_variable_->notify_all();
-    //   condition_variable_->wait(lk); // FIXME i need someone wake me up!
-    // }
-    // lk.unlock();
+      // sleep on channel to wait
+      chan_cv_->wait_for(chan_lk, std::chrono::milliseconds(1000));
+      lk.lock();
+    }
+    chan_lk.unlock();
+    lk.unlock();
 }
 
 TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
