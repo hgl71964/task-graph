@@ -181,36 +181,6 @@ TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int n
           }
           });
     }
-
-    // chan_cv_ = new std::condition_variable();
-    // chan_mutex_ = new std::mutex();
-    // for (auto i = 0; i < num_threads_; ++i) {
-    //   threads_[i] = std::thread([this] {
-    //       while (true) {
-    //         this->mutex_->lock();
-
-    //         if (this->jobs_.empty()) {
-    //           this->chan_cv_->notify_all();
-    //         } else {
-    //           auto job = this->jobs_.front();
-    //           this->jobs_.pop();
-
-    //           // unlock and run
-    //           this->mutex_->unlock();
-    //           job();
-    //           this->mutex_->lock();
-    //         }
-
-
-    //         // terminate
-    //         if (this->terminate_) {
-    //           break;
-    //         }
-    //         this->mutex_->unlock();
-    //       }
-    //       this->mutex_->unlock();
-    //       });
-    // }
 }
 
 TaskSystemParallelThreadPoolSpinning::~TaskSystemParallelThreadPoolSpinning() {
@@ -239,7 +209,7 @@ void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_tota
     // std::cout << "start assignment\n" << std::flush;
 		// std::this_thread::sleep_for(std::chrono::milliseconds(5000));
 
-    // lock to assign jobs
+    // reset
     this->mutex_->lock();
     assert(jobs_.empty());
     task_cnt_ = 0;
@@ -247,36 +217,16 @@ void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_tota
 
     // push jobs
     for (int i = 0; i < num_total_tasks; ++i) {
-      // auto fn = [=] () -> void {
-      //   runnable->runTask(i, num_total_tasks);
-      // };
-      // jobs_.push(fn);
       jobs_.push([&, i] () -> void {
         runnable->runTask(i, num_total_tasks);
       });
     }
-
-    // while (!jobs_.empty()) {
-    //   this->mutex_->unlock();
-    //   std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    //   this->mutex_->lock();
-    // }
-    // this->mutex_->unlock();
 
     // MUST ensure all jobs done for this run
     // XXX don't need a lock here
     while (task_cnt_ != num_total_tasks) {
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
-
-    // std::unique_lock<std::mutex> chan_lk(*chan_mutex_);
-    // while (!jobs_.empty()) {
-    //   this->mutex_->unlock();
-    //   chan_cv_->wait_for(chan_lk, std::chrono::milliseconds(1000));
-    //   this->mutex_->lock();
-    // }
-    // chan_lk.unlock();
-    // this->mutex_->unlock();
 }
 
 TaskID TaskSystemParallelThreadPoolSpinning::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
