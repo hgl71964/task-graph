@@ -65,8 +65,8 @@ class TaskSystemParallelThreadPoolSpinning: public ITaskSystem {
 
     private:
         int num_threads_;
+        int task_cnt_;
         bool terminate_;
-        bool last_one_done_;
         std::queue<std::function<void()>> jobs_{};
         std::thread* threads_;
         std::mutex* mutex_;
