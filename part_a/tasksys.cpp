@@ -286,6 +286,8 @@ TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
     delete[] threads_;
     delete mutex_;
     delete condition_variable_;
+    delete chan_mutex_;
+    delete chan_cv_;
 }
 
 void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_total_tasks) {
