@@ -99,6 +99,7 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
     private:
         int num_threads_;
         bool terminate_;
+        std::atomic<int> task_cnt_;
         std::queue<std::function<void()>> jobs_{};
         std::thread* threads_;
         std::mutex* mutex_;
