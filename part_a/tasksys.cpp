@@ -345,8 +345,16 @@ TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
     //
     terminate_ = true;
     condition_variable_->notify_all();
+
+    // XXX IF a thread hasn't gone to sleep, the above call will not wake it up!!
+    // HOW to know if all threads go to sleep
+    // must linger a bit
+    for (auto i = 0; i < 3; i++) {
+      condition_variable_->notify_all();
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
     for (auto j = 0; j < num_threads_ - 1; ++j)
-        threads_[j].join();
+      threads_[j].join();
 
     delete[] threads_;
     delete mutex_;
@@ -369,23 +377,23 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
     // }
 
     // dispatch
-    // printf("dispatch %d\n", num_total_tasks);
+    // printf("dispatch %d - %d\n", num_total_tasks, num_threads_);
     task_cnt_ = 0;
     std::unique_lock<std::mutex> lk(*mutex_);
     for (int i = 0; i < num_threads_ - 1; ++i) {
       // long-running job
-      jobs_.push([i, &runnable, &num_total_tasks, this] () -> void {
+      // NOTE: must capture by copy,
+      // otherwise, num_total_tasks will change across Calls!!!!!
+      jobs_.push([i, runnable, num_total_tasks, this] () -> void {
         for (auto j = i; j < num_total_tasks; j += this->num_threads_) {
           runnable->runTask(j, num_total_tasks);
           this->task_cnt_++; // atomic update
         }
       });
-
-      condition_variable_->notify_one();
-      lk.unlock();
-      lk.lock();
     }
+    condition_variable_->notify_all();
     lk.unlock();
+    // printf("dispatch OK %d - %d\n", task_cnt_.load(), num_total_tasks);
 
     // printf("unlock\n");
 
@@ -396,19 +404,17 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
     }
     // printf("start to wait\n");
 
-    // MUST ensure all jobs done for this run
-    // FIXME sleep!
+    // busy waiting - >MUST ensure all jobs done for this run
     // dead lock on spin between call?
     while (task_cnt_.load() != num_total_tasks) {
+      // printf(".");
+      // printf("%d , %d; ", task_cnt_.load(), num_total_tasks);
       // std::this_thread::sleep_for(std::chrono::milliseconds(10));
       // this->condition_variable_->notify_all();
     }
-    // std::unique_lock<std::mutex> chan_lk(*chan_mutex_);
-    // while (task_cnt_.load() != num_total_tasks) {
-    //   // chan_cv_->wait_for(chan_lk, std::this_thread::sleep_for(std::chrono::milliseconds(100)));
-    //   std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    // }
-    // chan_lk.unlock();
+
+    // FIXME sleep!
+    // MUST ensure all jobs done for this run && ALL THREADS SLEEP!!
 }
 
 TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
