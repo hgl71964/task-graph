@@ -198,16 +198,11 @@ TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int n
 
           // busy waiting
           while (true) {
-            // run jobs from my queue
             if (!this->jobs_[i].empty()) {
               auto job = this->jobs_[i].front();
               this->jobs_[i].pop();
               job();
-
-              // atomic update
-              this->task_cnt_++;
             }
-
             // terminate
             if (this->terminate_) {
               break;
@@ -243,17 +238,22 @@ void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_tota
 		// std::this_thread::sleep_for(std::chrono::milliseconds(5000));
 
     // reset
-    for (int i = 0; i < num_threads_; ++i) {
-      assert(jobs_[i].empty());
-    }
+    // for (int i = 0; i < num_threads_; ++i) {
+    //   assert(jobs_[i].empty());
+    // }
     task_cnt_ = 0;
 
     // push jobs
-    for (int i = 0; i < num_total_tasks; ++i) {
-      int chan = i % num_threads_;
-      jobs_[chan].push([&, i] () -> void {
-        runnable->runTask(i, num_total_tasks);
-      });
+    for (int i = 0; i < num_threads_; ++i) {
+      if (i < num_total_tasks) {
+        // long-running job
+        jobs_[i].push([i, &runnable, &num_total_tasks, this] () -> void {
+          for (auto j = i; j < num_total_tasks; j += this->num_threads_) {
+            runnable->runTask(j, num_total_tasks);
+            this->task_cnt_++; // atomic update
+          }
+        });
+      }
     }
 
     // MUST ensure all jobs done for this run
