@@ -344,7 +344,6 @@ TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
     // (requiring changes to tasksys.h).
     //
     terminate_ = true;
-    condition_variable_->notify_all();
 
     // XXX IF a thread hasn't gone to sleep, the above call will not wake it up!!
     // HOW to know if all threads go to sleep
@@ -404,17 +403,13 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
     }
     // printf("start to wait\n");
 
-    // busy waiting - >MUST ensure all jobs done for this run
-    // dead lock on spin between call?
-    while (task_cnt_.load() != num_total_tasks) {
-      // printf(".");
-      // printf("%d , %d; ", task_cnt_.load(), num_total_tasks);
-      // std::this_thread::sleep_for(std::chrono::milliseconds(10));
-      // this->condition_variable_->notify_all();
-    }
+    // busy waiting -> MUST ensure all jobs done for this run
+    // while (task_cnt_.load() != num_total_tasks) {}
 
-    // FIXME sleep!
-    // MUST ensure all jobs done for this run && ALL THREADS SLEEP!!
+    // sleep! FIXME
+    // MUST ensure all jobs done for this run
+    while (task_cnt_.load() != num_total_tasks) {
+    }
 }
 
 TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
