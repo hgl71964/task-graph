@@ -2,6 +2,17 @@
 #define _TASKSYS_H
 
 #include "itasksys.h"
+#include <condition_variable>
+#include <mutex>
+#include <thread>
+#include <queue>
+#include <functional>
+#include <chrono>
+#include <iostream>
+#include <assert.h>
+#include <algorithm>
+#include <atomic>
+#include <unordered_map>
 
 /*
  * TaskSystemSerial: This class is the student's implementation of a
@@ -68,6 +79,19 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
         TaskID runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
                                 const std::vector<TaskID>& deps);
         void sync();
+    private:
+        int num_threads_;
+        bool terminate_;
+        std::thread* threads_;
+        std::mutex* mutex_;
+        std::mutex* submitted_mutex_;
+        std::condition_variable* cv_;
+
+        std::queue<std::function<void()>> ready_jobs_{};
+        std::vector<std::function<void()>> submitted_jobs_{};
+        std::unordered_map<TaskID, std::vector<TaskID>> deps_books_{};
+        TaskID tid_;
+
 };
 
 #endif
