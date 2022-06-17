@@ -28,3 +28,6 @@ $(OBJDIR)/%.o: $(COMMONDIR)/%.cpp
 
 $(OBJDIR)/%.o: %.cpp
 	$(CXX) $< $(CXXFLAGS) -c -o $@
+
+play:
+	$(CXX) playground.cpp -o a.out
