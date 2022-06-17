@@ -307,33 +307,33 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
     chan_mutex_ = new std::mutex();
 
     // start thread pool
-    // for (auto i = 0; i < num_threads_ - 1; ++i) {
-    //   threads_[i] = std::thread([this] {
-    //       // get lock first
-    //       std::unique_lock<std::mutex> lk(*(this->mutex_));
+    for (auto i = 0; i < num_threads_ - 1; ++i) {
+      threads_[i] = std::thread([this] {
+          // get lock first
+          std::unique_lock<std::mutex> lk(*(this->mutex_));
 
-    //       // thread pool loop
-    //       while (true) {
-    //         if (this->jobs_.empty()) {
-    //           this->condition_variable_->wait(lk);
-    //         } else {
-    //           auto job = this->jobs_.front();
-    //           this->jobs_.pop();
+          // thread pool loop
+          while (true) {
+            if (!this->jobs_.empty()) {
+              auto job = this->jobs_.front();
+              this->jobs_.pop();
 
-    //           lk.unlock();
-    //           job();
-    //           lk.lock();
-    //         }
-    //         // terminate
-    //         if (this->terminate_) {
-    //           break;
-    //         }
-    //       }
+              lk.unlock();
+              job();
+              lk.lock();
+              continue;
+            }
 
-    //       // exit release lock
-    //       lk.unlock();
-    //       });
-    // }
+            this->condition_variable_->wait(lk);
+            if (this->terminate_) {
+              break;
+            }
+          }
+
+          // exit release lock
+          lk.unlock();
+          });
+    }
 }
 
 TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
@@ -343,16 +343,16 @@ TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
     // Implementations are free to add new class member variables
     // (requiring changes to tasksys.h).
     //
-    // terminate_ = true;
-    // condition_variable_->notify_all();
-    // for (auto j = 0; j < num_threads_ - 1; ++j)
-    //     threads_[j].join();
+    terminate_ = true;
+    condition_variable_->notify_all();
+    for (auto j = 0; j < num_threads_ - 1; ++j)
+        threads_[j].join();
 
-    // delete[] threads_;
-    // delete mutex_;
-    // delete condition_variable_;
-    // delete chan_mutex_;
-    // delete chan_cv_;
+    delete[] threads_;
+    delete mutex_;
+    delete condition_variable_;
+    delete chan_mutex_;
+    delete chan_cv_;
 }
 
 void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_total_tasks) {
@@ -364,35 +364,45 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
     // tasks sequentially on the calling thread.
     //
     //
-    for (int i = 0; i < num_total_tasks; i++) {
-        runnable->runTask(i, num_total_tasks);
-    }
+    // for (int i = 0; i < num_total_tasks; i++) {
+    //     runnable->runTask(i, num_total_tasks);
+    // }
 
     // dispatch
-    // std::unique_lock<std::mutex> lk(*mutex_);
-    // task_cnt_ = 0;
+    // printf("dispatch %d\n", num_total_tasks);
+    task_cnt_ = 0;
+    std::unique_lock<std::mutex> lk(*mutex_);
+    for (int i = 0; i < num_threads_ - 1; ++i) {
+      // long-running job
+      jobs_.push([i, &runnable, &num_total_tasks, this] () -> void {
+        for (auto j = i; j < num_total_tasks; j += this->num_threads_) {
+          runnable->runTask(j, num_total_tasks);
+          this->task_cnt_++; // atomic update
+        }
+      });
 
-    // for (int i = 0; i < num_threads_ - 1; ++i) {
-    //   if (i < num_total_tasks) {
-    //     // long-running job
-    //     jobs_.push([i, &runnable, &num_total_tasks, this] () -> void {
-    //       for (auto j = i; j < num_total_tasks; j += this->num_threads_) {
-    //         runnable->runTask(j, num_total_tasks);
-    //         this->task_cnt_++; // atomic update
-    //       }
-    //     });
-    //   }
-    // }
-    // condition_variable_->notify_all();
-    // lk.unlock();
+      condition_variable_->notify_one();
+      lk.unlock();
+      lk.lock();
+    }
+    lk.unlock();
 
-    // // main threads
-    // for (auto j = num_threads_ - 1; j < num_total_tasks; j += num_threads_) {
-    //   runnable->runTask(j, num_total_tasks);
-    //   this->task_cnt_++; // atomic update
-    // }
+    // printf("unlock\n");
 
-    // // MUST ensure all jobs done for this run
+    // main threads
+    for (auto j = num_threads_ - 1; j < num_total_tasks; j += num_threads_) {
+      runnable->runTask(j, num_total_tasks);
+      this->task_cnt_++; // atomic update
+    }
+    // printf("start to wait\n");
+
+    // MUST ensure all jobs done for this run
+    // FIXME sleep!
+    // dead lock on spin between call?
+    while (task_cnt_.load() != num_total_tasks) {
+      // std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      // this->condition_variable_->notify_all();
+    }
     // std::unique_lock<std::mutex> chan_lk(*chan_mutex_);
     // while (task_cnt_.load() != num_total_tasks) {
     //   // chan_cv_->wait_for(chan_lk, std::this_thread::sleep_for(std::chrono::milliseconds(100)));
