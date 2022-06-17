@@ -317,13 +317,14 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
             if (!this->jobs_.empty()) {
               auto job = this->jobs_.front();
               this->jobs_.pop();
-
               lk.unlock();
               job();
               lk.lock();
               continue;
             }
 
+            // before sleep just notify
+            this->chan_cv_->notify_all();
             this->condition_variable_->wait(lk);
             if (this->terminate_) {
               break;
@@ -392,9 +393,6 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
     }
     condition_variable_->notify_all();
     lk.unlock();
-    // printf("dispatch OK %d - %d\n", task_cnt_.load(), num_total_tasks);
-
-    // printf("unlock\n");
 
     // main threads
     for (auto j = num_threads_ - 1; j < num_total_tasks; j += num_threads_) {
@@ -406,10 +404,14 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
     // busy waiting -> MUST ensure all jobs done for this run
     // while (task_cnt_.load() != num_total_tasks) {}
 
-    // sleep! FIXME
-    // MUST ensure all jobs done for this run
+    // sleep! MUST ensure all jobs done for this run
+    std::unique_lock<std::mutex> chan_lk(*(chan_mutex_));
     while (task_cnt_.load() != num_total_tasks) {
+      // if before sleep, all thread finishes, i need to wake up myself
+      chan_cv_->wait_for(chan_lk, std::chrono::milliseconds(10));
     }
+    chan_lk.unlock();
+
 }
 
 TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
