@@ -77,7 +77,6 @@ class TaskSystemParallelThreadPoolSpinning: public ITaskSystem {
         std::atomic<int> task_cnt_;
         bool terminate_;
         std::thread* threads_;
-        std::mutex* mutex_;
         std::queue<std::function<void()>> *jobs_;
 };
 

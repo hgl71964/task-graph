@@ -187,12 +187,11 @@ TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int n
     num_threads_ = num_threads;
     terminate_ = false;
     task_cnt_ = 0;
-    jobs_ = new std::queue<std::function<void()>>[num_threads];
-    threads_ = new std::thread[num_threads];
-    mutex_ = new std::mutex[num_threads];
+    jobs_ = new std::queue<std::function<void()>>[num_threads-1];
+    threads_ = new std::thread[num_threads-1];
 
     // start thread pool
-    for (auto i = 0; i < num_threads_; ++i) {
+    for (auto i = 0; i < num_threads_ - 1; ++i) {
       // need to capture this by reference
       threads_[i] = std::thread([i, this] {
 
@@ -216,11 +215,10 @@ TaskSystemParallelThreadPoolSpinning::~TaskSystemParallelThreadPoolSpinning() {
 	// std::cout << "close out\n" << std::flush;
 	// std::this_thread::sleep_for(std::chrono::milliseconds(5000));
   terminate_ = true;
-  for (auto j = 0; j < num_threads_; ++j)
+  for (auto j = 0; j < num_threads_ - 1; ++j)
       threads_[j].join();
   delete[] threads_;
   delete[] jobs_;
-  delete[] mutex_;
 }
 
 void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_total_tasks) {
@@ -244,7 +242,7 @@ void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_tota
     task_cnt_ = 0;
 
     // push jobs
-    for (int i = 0; i < num_threads_; ++i) {
+    for (int i = 0; i < num_threads_ - 1; ++i) {
       if (i < num_total_tasks) {
         // long-running job
         jobs_[i].push([i, &runnable, &num_total_tasks, this] () -> void {
@@ -255,10 +253,17 @@ void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_tota
         });
       }
     }
+    // main threads
+    if (num_threads_ < num_total_tasks) {
+      for (auto j = num_threads_ - 1; j < num_total_tasks; j += num_threads_) {
+        runnable->runTask(j, num_total_tasks);
+        this->task_cnt_++; // atomic update
+      }
+    }
 
     // MUST ensure all jobs done for this run
     while (task_cnt_.load() != num_total_tasks) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      //std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 }
 
