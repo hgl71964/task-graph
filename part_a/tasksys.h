@@ -66,12 +66,19 @@ class TaskSystemParallelThreadPoolSpinning: public ITaskSystem {
 
     private:
         int num_threads_;
-        // int task_cnt_;
+
+        // ONE QUEUE THREAD POOL IS TOO SLOW
+        // std::atomic<int> task_cnt_;
+        // bool terminate_;
+        // std::queue<std::function<void()>> jobs_{};
+        // std::thread* threads_;
+        // std::mutex* mutex_;
+
         std::atomic<int> task_cnt_;
         bool terminate_;
-        std::queue<std::function<void()>> jobs_{};
         std::thread* threads_;
         std::mutex* mutex_;
+        std::queue<std::function<void()>> *jobs_;
 };
 
 /*

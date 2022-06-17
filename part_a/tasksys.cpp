@@ -147,32 +147,66 @@ TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int n
     // (requiring changes to tasksys.h).
     //
 
+    // ONE QUEUE THREAD POOL IS TOO SLOW
+    // assert(num_threads > 0);
+    // num_threads_ = num_threads;
+    // terminate_ = false;
+    // task_cnt_ = 0;
+    // mutex_ = new std::mutex();
+    // threads_ = new std::thread[num_threads];
+
+    // // start thread pool
+    // for (auto i = 0; i < num_threads_; ++i) {
+    //   // need to capture this by reference
+    //   threads_[i] = std::thread([this] {
+    //       while (true) {
+    //         this->mutex_->lock();
+
+    //         // run jobs
+    //         if (!this->jobs_.empty()) {
+    //           auto job = this->jobs_.front();
+    //           this->jobs_.pop();
+
+    //           // unlock and run
+    //           this->mutex_->unlock();
+    //           job();
+    //           this->task_cnt_++;  // atomic udate
+    //           continue;
+    //         }
+    //         this->mutex_->unlock();
+
+    //         // terminate
+    //         if (this->terminate_) {
+    //           break;
+    //         }
+    //       }
+    //       });
+    // }
+
     assert(num_threads > 0);
     num_threads_ = num_threads;
     terminate_ = false;
     task_cnt_ = 0;
-    mutex_ = new std::mutex();
+    jobs_ = new std::queue<std::function<void()>>[num_threads];
     threads_ = new std::thread[num_threads];
+    mutex_ = new std::mutex[num_threads];
 
     // start thread pool
     for (auto i = 0; i < num_threads_; ++i) {
       // need to capture this by reference
-      threads_[i] = std::thread([this] {
+      threads_[i] = std::thread([i, this] {
+
+          // busy waiting
           while (true) {
-            this->mutex_->lock();
-
-            // run jobs
-            if (!this->jobs_.empty()) {
-              auto job = this->jobs_.front();
-              this->jobs_.pop();
-
-              // unlock and run
-              this->mutex_->unlock();
+            // run jobs from my queue
+            if (!this->jobs_[i].empty()) {
+              auto job = this->jobs_[i].front();
+              this->jobs_[i].pop();
               job();
-              this->task_cnt_++;  // atomic udate
-              continue;
+
+              // atomic update
+              this->task_cnt_++;
             }
-            this->mutex_->unlock();
 
             // terminate
             if (this->terminate_) {
@@ -186,13 +220,12 @@ TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int n
 TaskSystemParallelThreadPoolSpinning::~TaskSystemParallelThreadPoolSpinning() {
 	// std::cout << "close out\n" << std::flush;
 	// std::this_thread::sleep_for(std::chrono::milliseconds(5000));
-
-  // notify to close
   terminate_ = true;
   for (auto j = 0; j < num_threads_; ++j)
       threads_[j].join();
   delete[] threads_;
-  delete mutex_;
+  delete[] jobs_;
+  delete[] mutex_;
 }
 
 void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_total_tasks) {
@@ -210,21 +243,21 @@ void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_tota
 		// std::this_thread::sleep_for(std::chrono::milliseconds(5000));
 
     // reset
-    this->mutex_->lock();
-    assert(jobs_.empty());
+    for (int i = 0; i < num_threads_; ++i) {
+      assert(jobs_[i].empty());
+    }
     task_cnt_ = 0;
-    this->mutex_->unlock();
 
     // push jobs
     for (int i = 0; i < num_total_tasks; ++i) {
-      jobs_.push([&, i] () -> void {
+      int chan = i % num_threads_;
+      jobs_[chan].push([&, i] () -> void {
         runnable->runTask(i, num_total_tasks);
       });
     }
 
     // MUST ensure all jobs done for this run
-    // XXX don't need a lock here
-    while (task_cnt_ != num_total_tasks) {
+    while (task_cnt_.load() != num_total_tasks) {
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 }
