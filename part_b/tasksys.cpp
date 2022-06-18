@@ -163,7 +163,7 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
               // update
               auto task_id  = func2TaskID_[fn_ptr];
               completed_task_ids_.insert(task_id);
-              func2TaskID_.erase(task_id); // multiple erase is ok
+              func2TaskID_.erase(fn_ptr); // multiple erase is ok
               deps_books_.erase(task_id); // multiple erase is ok
               delete fn_ptr;  // prevent mem-leak
               continue;
@@ -187,7 +187,7 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
             this->submitted_mutex_->lock();
 
             std::vector<std::function<void()>*> dispatchable_list{};
-            for (auto i = 0; i < submitted_jobs_.size(); ++i) {
+            for (size_t i = 0; i < submitted_jobs_.size(); ++i) {
               // check if job dispatchable
               auto fn_ptr = submitted_jobs_[i];
               auto task_id = func2TaskID_[fn_ptr];
@@ -208,10 +208,9 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
 
             // dispatch jobs; hold ready_jobs_ lock
             this->mutex_->lock();
-            for (auto i = 0; i < dispatchable_list.size(); ++i) {
+            for (size_t i = 0; i < dispatchable_list.size(); ++i) {
               // delete from submitted data structure
               auto fn_ptr = dispatchable_list[i];
-              auto task_id = func2TaskID_[fn_ptr];
               submitted_jobs_.erase(std::remove(submitted_jobs_.begin(), submitted_jobs_.end(),
                                   fn_ptr), submitted_jobs_.end());
 
