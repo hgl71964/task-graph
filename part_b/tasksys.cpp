@@ -163,9 +163,7 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
               continue;
             }
 
-            // this->cv_->wait(lk);
-            lk.unlock();
-            lk.lock();
+            this->cv_->wait(lk);
             if (this->terminate_) {
               break;
             }
@@ -180,7 +178,7 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
     threads_[num_threads_-1] = std::thread([this] {
           // just busy waiting for now
           while (true) {
-            this->_mutex_->lock();
+            this->mutex_->lock();
 
             std::vector<std::tuple<IRunnable*, int>> dispatchable_list{};
             for (size_t i = 0; i < this->records_.size(); ++i) {
@@ -213,9 +211,10 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
               IRunnable* runnable = std::get<0>(record);
               int num_total_tasks = std::get<1>(record);
               for (int i = 0; i < this->num_threads_ - 1; ++i) {
-                // long-running job
-                // NOTE: must capture by copy,
+                // NOTE: task granularity: N threads per task
+                // NOTE: must capture by copy
                 // otherwise, num_total_tasks will change across Calls!!!!!
+                // TODO how to make sure N-threads have all finished this task
                 jobs_.push([=] () -> void {
                   for (auto j = i; j < num_total_tasks; j += num_threads_-1) {
                     runnable->runTask(j, num_total_tasks);
