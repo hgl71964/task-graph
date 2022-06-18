@@ -307,7 +307,7 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
       submitted_jobs_.push_back(fn);
       func2TaskID_[fn] = id;
     }
-    submitted_mutex_.unlock();
+    submitted_mutex_->unlock();
 
     // return immediately
     return id;

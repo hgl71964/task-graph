@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <atomic>
 #include <unordered_map>
+#include <unordered_set>
 
 /*
  * TaskSystemSerial: This class is the student's implementation of a
@@ -90,7 +91,7 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
         std::queue<std::function<void()> *> ready_jobs_{};
         std::vector<std::function<void()> *> submitted_jobs_{};
         std::unordered_map<std::function<void()>*, int> func2TaskID_{};
-        std::unordered_set<int> completed_task_ids_{};
+        std::unordered_set<TaskID> completed_task_ids_{};
         std::unordered_map<TaskID, std::vector<TaskID>> deps_books_{};
         TaskID tid_;
 
