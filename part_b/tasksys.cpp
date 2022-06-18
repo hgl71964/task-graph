@@ -163,6 +163,7 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
               lk.lock();
 
               // update
+              // XXX one id has multiple fn, one fn finish doesn't mean all finished
               auto task_id  = func2TaskID_[fn_ptr];
               completed_task_ids_.insert(task_id);
               func2TaskID_.erase(fn_ptr); // multiple erase is ok
@@ -172,7 +173,9 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
               continue;
             }
 
-            this->cv_->wait(lk);
+            // this->cv_->wait(lk);
+            lk.unlock();
+            lk.lock();
             if (this->terminate_) {
               break;
             }
@@ -293,6 +296,9 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
     submitted_mutex_->lock();
     assert(deps_books_.find(id) == deps_books_.end());
     deps_books_[id] = deps;
+
+    // TODO use record instead of function pointer
+
     for (int i = 0; i < num_threads_-1; ++i) {
 
       // build job
