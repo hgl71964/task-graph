@@ -152,11 +152,20 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
           // thread pool loop
           while (true) {
             if (!this->ready_jobs_.empty()) {
-              auto job = this->ready_jobs_.front();
+              auto fn_ptr = this->ready_jobs_.front();
               this->ready_jobs_.pop();
+
+              // run
               lk.unlock();
-              job();
+              (*fn_ptr)();
               lk.lock();
+
+              // update
+              auto task_id  = func2TaskID_[fn_ptr];
+              completed_task_ids_.insert(task_id);
+              func2TaskID_.erase(task_id); // multiple erase is ok
+              deps_books_.erase(task_id); // multiple erase is ok
+              delete fn_ptr;  // prevent mem-leak
               continue;
             }
 
@@ -176,13 +185,48 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
           // just busy waiting for now
           while (true) {
             this->submitted_mutex_->lock();
-            if (!this->submitted_jobs_.empty()) {
 
-              for (auto i = 0; i < submitted_jobs_.size(); ++i) {
-                // TODO if job i ready
+            std::vector<std::function<void()>*> dispatchable_list{};
+            for (auto i = 0; i < submitted_jobs_.size(); ++i) {
+              // check if job dispatchable
+              auto fn_ptr = submitted_jobs_[i];
+              auto task_id = func2TaskID_[fn_ptr];
+              auto deps = deps_books_[task_id];
+
+              bool dispatchable = true;
+              for (auto &id: deps) {
+                if (completed_task_ids_.find(id) == completed_task_ids_.end()) {
+                  dispatchable = false;
+                  break;
+                }
+              }
+
+              if (dispatchable) {
+                dispatchable_list.push_back(fn_ptr);
               }
             }
+
+            // dispatch jobs; hold ready_jobs_ lock
+            this->mutex_->lock();
+            for (auto i = 0; i < dispatchable_list.size(); ++i) {
+              // delete from submitted data structure
+              auto fn_ptr = dispatchable_list[i];
+              auto task_id = func2TaskID_[fn_ptr];
+              submitted_jobs_.erase(std::remove(submitted_jobs_.begin(), submitted_jobs_.end(),
+                                  fn_ptr), submitted_jobs_.end());
+
+              // wake up and push
+              ready_jobs_.push(fn_ptr);
+              this->cv_->notify_one();
+            }
+            // XXX should wake one up anyways?
+            // in case all sleep but still jobs to run
+            this->cv_->notify_one();
+            this->mutex_->unlock();
+
             this->submitted_mutex_->unlock();
+
+            // exit
             if (this->terminate_) {
               break;
             }
@@ -210,8 +254,12 @@ TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
     for (auto j = 0; j < num_threads_ - 1; ++j)
       threads_[j].join();
 
+    // shut down background thread
+    threads_[num_threads_-1].join();
+
     delete[] threads_;
     delete mutex_;
+    delete submitted_mutex_;
     delete cv_;
 }
 
@@ -247,15 +295,17 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
     submitted_mutex_->lock();
     for (int i = 0; i < num_threads_; ++i) {
 
-      // TODO iterator -> task id mapping
-      submitted_jobs_.push_back([i, num_total_tasks, runnable, this] () -> void {
+      // build job
+      std::function<void()>* fn = new std::function<void()>;
+      *fn = [i, num_total_tasks, runnable, this] () -> void {
         for (auto j = i; j < num_total_tasks; j += this->num_threads_) {
           runnable->runTask(j, num_total_tasks);
         }
+      };
 
-        // TODO
-
-      });
+      // push to submitted jobs
+      submitted_jobs_.push_back(fn);
+      func2TaskID_[fn] = id;
     }
     submitted_mutex_.unlock();
 
@@ -268,6 +318,18 @@ void TaskSystemParallelThreadPoolSleeping::sync() {
     //
     // CS149 students will modify the implementation of this method in Part B.
     //
+    submitted_mutex_->lock();
+    mutex_->lock();
+    while (!ready_jobs_.empty() || !submitted_jobs_.empty()) {
+    mutex_->unlock();
+    submitted_mutex_->unlock();
 
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    submitted_mutex_->lock();
+    mutex_->lock();
+    }
+    mutex_->unlock();
+    submitted_mutex_->unlock();
     return;
 }
