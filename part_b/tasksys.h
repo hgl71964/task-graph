@@ -89,8 +89,7 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
         std::condition_variable* cv_;
 
         std::queue<std::function<void()>> jobs_{};
-        std::vector<std::tuple<IRunnable*, int>> records_{};
-        std::unordered_map<std::tuple<IRunnable*, int>, TaskID> record2TaskID_{};
+        std::vector<std::tuple<TaskID, IRunnable*, int>> records_{};
         std::unordered_map<TaskID, std::vector<TaskID>> deps_books_{};
         std::unordered_set<TaskID> completed_task_ids_{};
         TaskID tid_;

@@ -180,11 +180,11 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
           while (true) {
             this->mutex_->lock();
 
-            std::vector<std::tuple<IRunnable*, int>> dispatchable_list{};
+            std::vector<std::tuple<TaskID, IRunnable*, int>> dispatchable_list{};
             for (size_t i = 0; i < this->records_.size(); ++i) {
               // check if job dispatchable
               auto record = this->records_[i];
-              auto task_id = this->record2TaskID_[record];
+              auto task_id = std::get<0>(record);
               auto deps = this->deps_books_[task_id];
 
               bool dispatchable = true;
@@ -208,8 +208,8 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
                                   record), records_.end());
 
               // build & dispatch
-              IRunnable* runnable = std::get<0>(record);
-              int num_total_tasks = std::get<1>(record);
+              IRunnable* runnable = std::get<1>(record);
+              int num_total_tasks = std::get<2>(record);
               for (int i = 0; i < this->num_threads_ - 1; ++i) {
                 // NOTE: task granularity: N threads per task
                 // NOTE: must capture by copy
@@ -299,10 +299,7 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
     deps_books_[id] = deps;
 
     // build record; push to pending list
-    auto r = std::make_tuple(runnable, num_total_tasks);
-    records_.push_back(r);
-    record2TaskID_[r] = id;
-
+    records_.push_back(std::make_tuple(id, runnable, num_total_tasks));
     mutex_->unlock();
 
     // return immediately
@@ -315,7 +312,7 @@ void TaskSystemParallelThreadPoolSleeping::sync() {
     // CS149 students will modify the implementation of this method in Part B.
     //
     mutex_->lock();
-    while (!ready_jobs_.empty() || !submitted_jobs_.empty()) {
+    while (!jobs_.empty() || !records_.empty()) {
     mutex_->unlock();
 
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
