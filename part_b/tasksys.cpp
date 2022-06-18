@@ -293,12 +293,12 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
     deps_books_[id] = deps;
 
     submitted_mutex_->lock();
-    for (int i = 0; i < num_threads_; ++i) {
+    for (int i = 0; i < num_threads_-1; ++i) {
 
       // build job
       std::function<void()>* fn = new std::function<void()>;
       *fn = [i, num_total_tasks, runnable, this] () -> void {
-        for (auto j = i; j < num_total_tasks; j += this->num_threads_) {
+        for (auto j = i; j < num_total_tasks; j += this->num_threads_-1) {
           runnable->runTask(j, num_total_tasks);
         }
       };
