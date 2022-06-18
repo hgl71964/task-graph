@@ -139,7 +139,6 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
     terminate_ = false;
     tid_ = 0;
     mutex_ = new std::mutex();
-    submitted_mutex_ = new std::mutex();
     threads_ = new std::thread[num_threads];
     cv_ = new std::condition_variable();
 
@@ -147,29 +146,20 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
     for (auto i = 0; i < num_threads_ - 1; ++i) {
       threads_[i] = std::thread([this] {
           // get lock first
-          // std::unique_lock<std::mutex> lk(*(this->mutex_));
-          std::unique_lock<std::mutex> lk(*(this->submitted_mutex_));
+          std::unique_lock<std::mutex> lk(*(this->mutex_));
 
           // thread pool loop
           while (true) {
-            if (!this->ready_jobs_.empty()) {
-              auto fn_ptr = this->ready_jobs_.front();
-              this->ready_jobs_.pop();
+            if (!this->jobs_.empty()) {
+              auto job = this->jobs_.front();
+              this->jobs_.pop();
 
               // run
               lk.unlock();
-              assert(fn_ptr);
-              (*fn_ptr)();
+              job();
               lk.lock();
 
-              // update
-              // XXX one id has multiple fn, one fn finish doesn't mean all finished
-              auto task_id  = func2TaskID_[fn_ptr];
-              completed_task_ids_.insert(task_id);
-              func2TaskID_.erase(fn_ptr); // multiple erase is ok
-              deps_books_.erase(task_id); // multiple erase is ok
-              delete fn_ptr;  // prevent mem-leak
-              fn_ptr = nullptr;
+              // update TODO how to know all job related to a task has all finishes
               continue;
             }
 
@@ -190,44 +180,56 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
     threads_[num_threads_-1] = std::thread([this] {
           // just busy waiting for now
           while (true) {
-            this->submitted_mutex_->lock();
+            this->_mutex_->lock();
 
-            std::vector<std::function<void()>*> dispatchable_list{};
-            for (size_t i = 0; i < submitted_jobs_.size(); ++i) {
+            std::vector<std::tuple<IRunnable*, int>> dispatchable_list{};
+            for (size_t i = 0; i < this->records_.size(); ++i) {
               // check if job dispatchable
-              auto fn_ptr = submitted_jobs_[i];
-              auto task_id = func2TaskID_[fn_ptr];
-              auto deps = deps_books_[task_id];
+              auto record = this->records_[i];
+              auto task_id = this->record2TaskID_[record];
+              auto deps = this->deps_books_[task_id];
 
               bool dispatchable = true;
               for (auto &id: deps) {
-                if (completed_task_ids_.find(id) == completed_task_ids_.end()) {
+                if (this->completed_task_ids_.find(id) == this->completed_task_ids_.end()) {
                   dispatchable = false;
                   break;
                 }
               }
 
               if (dispatchable) {
-                dispatchable_list.push_back(fn_ptr);
+                dispatchable_list.push_back(record);
               }
             }
 
-            // dispatch jobs; hold ready_jobs_ lock
+            // build jobs and dispatch
             for (size_t i = 0; i < dispatchable_list.size(); ++i) {
               // delete from submitted data structure
-              auto fn_ptr = dispatchable_list[i];
-              submitted_jobs_.erase(std::remove(submitted_jobs_.begin(), submitted_jobs_.end(),
-                                  fn_ptr), submitted_jobs_.end());
+              auto record = dispatchable_list[i];
+              this->records_.erase(std::remove(records_.begin(), records_.end(),
+                                  record), records_.end());
 
-              // wake up and push
-              ready_jobs_.push(fn_ptr);
+              // build & dispatch
+              IRunnable* runnable = std::get<0>(record);
+              int num_total_tasks = std::get<1>(record);
+              for (int i = 0; i < this->num_threads_ - 1; ++i) {
+                // long-running job
+                // NOTE: must capture by copy,
+                // otherwise, num_total_tasks will change across Calls!!!!!
+                jobs_.push([=] () -> void {
+                  for (auto j = i; j < num_total_tasks; j += num_threads_-1) {
+                    runnable->runTask(j, num_total_tasks);
+                  }
+                });
+              }
               this->cv_->notify_one();
             }
+
             // XXX should wake one up anyways?
             // in case all sleep but still jobs to run
             this->cv_->notify_one();
 
-            this->submitted_mutex_->unlock();
+            this->mutex_->unlock();
 
             // exit
             if (this->terminate_) {
@@ -262,7 +264,6 @@ TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
 
     delete[] threads_;
     delete mutex_;
-    delete submitted_mutex_;
     delete cv_;
 }
 
@@ -293,27 +294,17 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
     // dispatch
     auto id = tid_++;
 
-    submitted_mutex_->lock();
+    mutex_->lock();
+
     assert(deps_books_.find(id) == deps_books_.end());
     deps_books_[id] = deps;
 
-    // TODO use record instead of function pointer
+    // build record; push to pending list
+    auto r = std::make_tuple(runnable, num_total_tasks);
+    records_.push_back(r);
+    record2TaskID_[r] = id;
 
-    for (int i = 0; i < num_threads_-1; ++i) {
-
-      // build job
-      std::function<void()>* fn = new std::function<void()>;
-      *fn = [i, num_total_tasks, runnable, this] () -> void {
-        for (auto j = i; j < num_total_tasks; j += this->num_threads_-1) {
-          runnable->runTask(j, num_total_tasks);
-        }
-      };
-
-      // push to submitted jobs
-      submitted_jobs_.push_back(fn);
-      func2TaskID_[fn] = id;
-    }
-    submitted_mutex_->unlock();
+    mutex_->unlock();
 
     // return immediately
     return id;
@@ -324,17 +315,13 @@ void TaskSystemParallelThreadPoolSleeping::sync() {
     //
     // CS149 students will modify the implementation of this method in Part B.
     //
-    submitted_mutex_->lock();
     mutex_->lock();
     while (!ready_jobs_.empty() || !submitted_jobs_.empty()) {
     mutex_->unlock();
-    submitted_mutex_->unlock();
 
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-    submitted_mutex_->lock();
     mutex_->lock();
     }
     mutex_->unlock();
-    submitted_mutex_->unlock();
 }
