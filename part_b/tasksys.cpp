@@ -210,7 +210,6 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
             }
 
             // dispatch jobs; hold ready_jobs_ lock
-            this->mutex_->lock();
             for (size_t i = 0; i < dispatchable_list.size(); ++i) {
               // delete from submitted data structure
               auto fn_ptr = dispatchable_list[i];
@@ -224,7 +223,6 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
             // XXX should wake one up anyways?
             // in case all sleep but still jobs to run
             this->cv_->notify_one();
-            this->mutex_->unlock();
 
             this->submitted_mutex_->unlock();
 
@@ -291,9 +289,9 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
 
     // dispatch
     auto id = tid_++;
-    assert(deps_books_.find(id) == deps_books_.end());
 
     submitted_mutex_->lock();
+    assert(deps_books_.find(id) == deps_books_.end());
     deps_books_[id] = deps;
     for (int i = 0; i < num_threads_-1; ++i) {
 
