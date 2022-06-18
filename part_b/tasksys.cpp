@@ -147,7 +147,8 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
     for (auto i = 0; i < num_threads_ - 1; ++i) {
       threads_[i] = std::thread([this] {
           // get lock first
-          std::unique_lock<std::mutex> lk(*(this->mutex_));
+          // std::unique_lock<std::mutex> lk(*(this->mutex_));
+          std::unique_lock<std::mutex> lk(*(this->submitted_mutex_));
 
           // thread pool loop
           while (true) {
@@ -157,6 +158,7 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
 
               // run
               lk.unlock();
+              assert(fn_ptr);
               (*fn_ptr)();
               lk.lock();
 
@@ -166,6 +168,7 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
               func2TaskID_.erase(fn_ptr); // multiple erase is ok
               deps_books_.erase(task_id); // multiple erase is ok
               delete fn_ptr;  // prevent mem-leak
+              fn_ptr = nullptr;
               continue;
             }
 
@@ -289,9 +292,9 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
     // dispatch
     auto id = tid_++;
     assert(deps_books_.find(id) == deps_books_.end());
-    deps_books_[id] = deps;
 
     submitted_mutex_->lock();
+    deps_books_[id] = deps;
     for (int i = 0; i < num_threads_-1; ++i) {
 
       // build job
@@ -330,5 +333,4 @@ void TaskSystemParallelThreadPoolSleeping::sync() {
     }
     mutex_->unlock();
     submitted_mutex_->unlock();
-    return;
 }
