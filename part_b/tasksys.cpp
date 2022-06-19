@@ -265,6 +265,7 @@ TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
     // Implementations are free to add new class member variables
     // (requiring changes to tasksys.h).
     //
+    sync(); // ensure all jobs finish
     terminate_ = true;
 
     // XXX IF a thread hasn't gone to sleep, the above call will not wake it up!!
