@@ -91,6 +91,8 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
         std::queue<std::function<void()>> jobs_{};
         std::vector<std::tuple<TaskID, IRunnable*, int>> records_{};
         std::unordered_map<TaskID, std::vector<TaskID>> deps_books_{};
+        std::unordered_map<TaskID, int> task_total_{};
+        std::unordered_map<TaskID, std::atomic<int>> task_cnt_{};
         std::unordered_set<TaskID> completed_task_ids_{};
         TaskID tid_;
 };

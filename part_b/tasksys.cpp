@@ -158,8 +158,6 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
               lk.unlock();
               job();
               lk.lock();
-
-              // update TODO how to know all job related to a task has all finishes
               continue;
             }
 
@@ -180,9 +178,27 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
           while (true) {
             this->mutex_->lock();
 
+            // mark completed jobs
+						for (auto it = this->task_cnt_.begin(); it != this->task_cnt_.end(); ) {
+							auto task_id = it->first;
+							auto task_cnt = it->second.load();
+							auto task_total = this->task_total_[task_id];
+
+							if (task_cnt == task_total) {
+                completed_task_ids_.insert(task_id);
+								task_total_.erase(task_id);
+                deps_books_.erase(task_id);
+								it = this->task_cnt_.erase(it);
+                printf("task done: %d\n", task_id);
+              } else {
+                // printf("task executing: %d - %d - %d\n", task_id, task_cnt, task_total);
+                ++it;
+              }
+            }
+
+            // check if job dispatchable
             std::vector<std::tuple<TaskID, IRunnable*, int>> dispatchable_list{};
             for (const auto &record: records_) {
-              // check if job dispatchable
               auto task_id = std::get<0>(record);
               auto deps = this->deps_books_[task_id];
 
@@ -206,25 +222,30 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
                                   record), records_.end());
 
               // build & dispatch
+              TaskID task_id = std::get<0>(record);
               IRunnable* runnable = std::get<1>(record);
               int num_total_tasks = std::get<2>(record);
+              task_cnt_[task_id] = 0;
+              task_total_[task_id] = num_total_tasks;
               for (int i = 0; i < this->num_threads_ - 1; ++i) {
                 // NOTE: task granularity: N threads per task
                 // NOTE: must capture by copy
                 // otherwise, num_total_tasks will change across Calls!!!!!
                 // TODO how to make sure N-threads have all finished this task
-                jobs_.push([=] () -> void {
-                  for (auto j = i; j < num_total_tasks; j += num_threads_-1) {
+                jobs_.push([i, task_id, num_total_tasks, runnable, this] () -> void {
+                  for (auto j = i; j < num_total_tasks; j += this->num_threads_-1) {
                     runnable->runTask(j, num_total_tasks);
+                    this->task_cnt_[task_id]++;
                   }
                 });
               }
-              this->cv_->notify_one();
             }
 
-            // XXX should wake one up anyways?
+            // XXX should wake up anyways?
             // in case all sleep but still jobs to run
-            this->cv_->notify_one();
+            if (!dispatchable_list.empty()) {
+              this->cv_->notify_all();
+            }
 
             this->mutex_->unlock();
 
