@@ -22,7 +22,8 @@ tests=(
         "ping_pong_unequal_async"
         "super_light_async"
         "super_super_light_async"
-        "recursive_fibonacci_async"
+
+        "recursive_fibonacci_async"  # has seg fault
         # "simple_run_deps_test" # it takes a very long time
         "math_operations_in_tight_for_loop_async"
         "math_operations_in_tight_for_loop_fewer_tasks_async"
