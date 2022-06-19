@@ -181,14 +181,13 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
             this->mutex_->lock();
 
             std::vector<std::tuple<TaskID, IRunnable*, int>> dispatchable_list{};
-            for (size_t i = 0; i < this->records_.size(); ++i) {
+            for (const auto &record: records_) {
               // check if job dispatchable
-              auto record = this->records_[i];
               auto task_id = std::get<0>(record);
               auto deps = this->deps_books_[task_id];
 
               bool dispatchable = true;
-              for (auto &id: deps) {
+              for (const auto &id: deps) {
                 if (this->completed_task_ids_.find(id) == this->completed_task_ids_.end()) {
                   dispatchable = false;
                   break;
@@ -201,9 +200,8 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
             }
 
             // build jobs and dispatch
-            for (size_t i = 0; i < dispatchable_list.size(); ++i) {
+            for (const auto &record: dispatchable_list) {
               // delete from submitted data structure
-              auto record = dispatchable_list[i];
               this->records_.erase(std::remove(records_.begin(), records_.end(),
                                   record), records_.end());
 
