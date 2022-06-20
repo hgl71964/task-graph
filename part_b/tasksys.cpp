@@ -168,8 +168,8 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
               lk.lock();
 
               // sync jobs status, mark completed; each task is run by `num_worker`
-              worker_cnt_[task_id]++;
-              if (worker_cnt_[task_id] == num_worker) {
+              this->worker_cnt_[task_id]++;
+              if (this->worker_cnt_[task_id] == num_worker) {
                 // printf("task: %d; ", task_id);
                 this->completed_task_ids_.insert(task_id);
                 this->worker_cnt_.erase(task_id);
@@ -237,14 +237,32 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
 
               // ================= mutex critical section ====================
               this->mutex_->lock();
-              worker_cnt_[task_id] = 0; // init count
+              this->worker_cnt_[task_id] = 0; // init count
               for (int i = 0; i < this->num_threads_ - 1; ++i) {
                 // NOTE: task granularity: N threads per task
                 jobs_.push(std::make_tuple(task_id, runnable, i,
-                        num_total_tasks, this->num_threads_-1));
+                        num_total_tasks, this->num_threads_));
               }
               // XXX should wake up anyways? in case all sleep but still jobs to run
               this->cv_->notify_all();
+              this->mutex_->unlock();
+              // ================= mutex critical section ====================
+
+              // background thread helps out
+              for (auto j = this->num_threads_ - 1; j < num_total_tasks; j += this->num_threads_) {
+                runnable->runTask(j, num_total_tasks);
+              }
+              // ================= mutex critical section ====================
+              this->mutex_->lock();
+              this->worker_cnt_[task_id]++;
+              if (this->worker_cnt_[task_id] == this->num_threads_) {
+                // printf("task: %d; ", task_id);
+                this->completed_task_ids_.insert(task_id);
+                this->worker_cnt_.erase(task_id);
+                this->cv2_->notify_all();
+                // this->deps_books_.erase(task_id);
+                // TODO clean-up other bookkeeping data structure?
+              }
               this->mutex_->unlock();
               // ================= mutex critical section ====================
             }
@@ -318,7 +336,6 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
     m2_->lock();
 
     // build record; push to pending list
-    assert(deps_books_.find(id) == deps_books_.end());
     deps_books_[id] = deps;
     records_.push_back(std::make_tuple(id, runnable, num_total_tasks));
 
