@@ -268,7 +268,7 @@ TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
     sync(); // ensure all jobs finish
     terminate_ = true;
 
-    // XXX IF a thread hasn't gone to sleep, the above call will not wake it up!!
+    // XXX IF a thread hasn't gone to sleep, the notyfy call will not wake it up!!
     // HOW to know if all threads go to sleep
     // must linger a bit
     for (auto i = 0; i < 3; i++) {
@@ -305,7 +305,6 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
     //
     // CS149 students will implement this method in Part B.
     //
-
     // for (int i = 0; i < num_total_tasks; i++) {
     //     runnable->runTask(i, num_total_tasks);
     // }
@@ -332,12 +331,12 @@ void TaskSystemParallelThreadPoolSleeping::sync() {
     // CS149 students will modify the implementation of this method in Part B.
     //
     mutex_->lock();
-    while (!jobs_.empty() || !records_.empty()) {
-    mutex_->unlock();
+    while (!jobs_.empty() || !records_.empty() || !task_cnt_.empty()) {
+      mutex_->unlock();
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-    mutex_->lock();
+      mutex_->lock();
     }
     mutex_->unlock();
 }
