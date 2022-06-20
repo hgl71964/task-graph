@@ -86,6 +86,8 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
         bool terminate_;
         std::thread* threads_;
         std::mutex* mutex_;
+        std::mutex* m2_;
+        std::mutex* m3_;
         std::condition_variable* cv_;
 
         std::queue<std::function<void()>> jobs_{};

@@ -139,6 +139,8 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
     terminate_ = false;
     tid_ = 0;
     mutex_ = new std::mutex();
+    m2_ = new std::mutex();
+    m3_ = new std::mutex();
     threads_ = new std::thread[num_threads];
     cv_ = new std::condition_variable();
 
@@ -146,7 +148,7 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
     for (auto i = 0; i < num_threads_ - 1; ++i) {
       threads_[i] = std::thread([this] {
           // get lock first
-          std::unique_lock<std::mutex> lk(*(this->mutex_));
+          std::unique_lock<std::mutex> lk(*(this->m2_));
 
           // thread pool loop
           while (true) {
@@ -176,10 +178,10 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
     threads_[num_threads_-1] = std::thread([this] {
           // just busy waiting for now
           while (true) {
-            this->mutex_->lock();
 
             // check completed jobs
             // XXX task_cnt_ is being updated even if lock is held
+            this->m3_->lock();
 						for (auto it = this->task_cnt_.begin(); it != this->task_cnt_.end(); ) {
 							auto task_id = it->first;
 							auto task_cnt = it->second.load();
@@ -189,15 +191,17 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
 							if (task_cnt == task_total) {
                 completed_task_ids_.insert(task_id);
 								task_total_.erase(task_id);
-                deps_books_.erase(task_id);
+                // deps_books_.erase(task_id); // no clean-up to avoid race
 								it = this->task_cnt_.erase(it);
-                printf("task: %d; ", task_id);
+                // printf("task: %d; ", task_id);
               } else {
                 // printf("task executing: %d - %d - %d\n", task_id, task_cnt, task_total);
                 ++it;
               }
             }
+            this->m3_->unlock();
 
+            this->mutex_->lock();
             // check if job dispatchable
             std::vector<std::tuple<TaskID, IRunnable*, int>> dispatchable_list{};
             for (const auto &record: records_) {
@@ -216,40 +220,42 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
                 dispatchable_list.push_back(record);
               }
             }
-
-            // build jobs and dispatch
+            // delete from submitted data structure
             for (const auto &record: dispatchable_list) {
-              // delete from submitted data structure
               this->records_.erase(std::remove(records_.begin(), records_.end(),
                                   record), records_.end());
-
-              // build & dispatch
-              TaskID task_id = std::get<0>(record);
-              IRunnable* runnable = std::get<1>(record);
-              int num_total_tasks = std::get<2>(record);
-              task_cnt_[task_id] = 0;
-              task_total_[task_id] = num_total_tasks;
-              for (int i = 0; i < this->num_threads_ - 1; ++i) {
-                // NOTE: task granularity: N threads per task
-                // NOTE: must capture by copy
-                // otherwise, num_total_tasks will change across Calls!!!!!
-                // TODO how to make sure N-threads have all finished this task
-                jobs_.push([i, task_id, num_total_tasks, runnable, this] () -> void {
-                  for (auto j = i; j < num_total_tasks; j += this->num_threads_-1) {
-                    runnable->runTask(j, num_total_tasks);
-                    this->task_cnt_[task_id]++;
-                  }
-                });
-              }
             }
-
-            // XXX should wake up anyways?
-            // in case all sleep but still jobs to run
-            if (!dispatchable_list.empty()) {
-              this->cv_->notify_all();
-            }
-
             this->mutex_->unlock();
+
+            if (!dispatchable_list.empty()) {
+              this->m2_->lock();
+              // build jobs and dispatch
+              for (const auto &record: dispatchable_list) {
+                // build & dispatch
+                TaskID task_id = std::get<0>(record);
+                IRunnable* runnable = std::get<1>(record);
+                int num_total_tasks = std::get<2>(record);
+                task_cnt_[task_id] = 0;
+                task_total_[task_id] = num_total_tasks;
+                for (int i = 0; i < this->num_threads_ - 1; ++i) {
+                  // NOTE: task granularity: N threads per task
+                  // NOTE: must capture by copy
+                  // otherwise, num_total_tasks will change across Calls!!!!!
+                  // TODO how to make sure N-threads have all finished this task
+                  jobs_.push([i, task_id, num_total_tasks, runnable, this] () -> void {
+                    for (auto j = i; j < num_total_tasks; j += this->num_threads_-1) {
+                      runnable->runTask(j, num_total_tasks);
+                      this->task_cnt_[task_id]++;
+                    }
+                  });
+                }
+              }
+              // XXX should wake up anyways?
+              // in case all sleep but still jobs to run
+              this->cv_->notify_all();
+              this->m2_->unlock();
+            }
+
 
             // exit
             if (this->terminate_) {
@@ -333,12 +339,20 @@ void TaskSystemParallelThreadPoolSleeping::sync() {
     // CS149 students will modify the implementation of this method in Part B.
     //
     mutex_->lock();
+    m2_->lock();
+    m3_->lock();
     while (!jobs_.empty() || !records_.empty() || !task_total_.empty()) {
+      m3_->unlock();
+      m2_->unlock();
       mutex_->unlock();
 
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
       mutex_->lock();
+      m2_->lock();
+      m3_->lock();
     }
+    m3_->unlock();
+    m2_->unlock();
     mutex_->unlock();
 }
