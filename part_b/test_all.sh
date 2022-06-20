@@ -30,7 +30,7 @@ tests=(
         "super_super_light_async"
         "recursive_fibonacci_async"
         # "simple_run_deps_test" # it takes a very long time
-        "math_operations_in_tight_for_loop_async"
+        "math_operations_in_tight_for_loop_async" # takes very long time
         "math_operations_in_tight_for_loop_fewer_tasks_async"
         "math_operations_in_tight_for_loop_fan_in_async"
         "math_operations_in_tight_for_loop_reduction_tree_async"
