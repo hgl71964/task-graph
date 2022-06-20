@@ -195,7 +195,7 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
     threads_[num_threads_-1] = std::thread([this] {
           // just busy waiting for now
           while (true) {
-            this->mutex_->lock();
+            this->m2_->lock();
 
             // check if job dispatchable
             std::vector<std::tuple<TaskID, IRunnable*, int>> dispatchable_list{};
@@ -203,6 +203,7 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
               auto task_id = std::get<0>(record);
               auto deps = this->deps_books_[task_id];
 
+              this->mutex_->lock();
               bool dispatchable = true;
               for (const auto &id: deps) {
                 if (this->completed_task_ids_.find(id) == this->completed_task_ids_.end()) {
@@ -210,6 +211,7 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
                   break;
                 }
               }
+              this->mutex_->unlock();
 
               if (dispatchable) {
                 dispatchable_list.push_back(record);
@@ -220,7 +222,7 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
               this->records_.erase(std::remove(records_.begin(), records_.end(),
                                   record), records_.end());
             }
-            this->mutex_->unlock();
+            this->m2_->unlock();
 
             // build jobs and dispatch
             if (!dispatchable_list.empty()) {
@@ -310,14 +312,14 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
     // dispatch
     auto id = tid_++;
 
-    mutex_->lock();
+    m2_->lock();
 
     // build record; push to pending list
     assert(deps_books_.find(id) == deps_books_.end());
     deps_books_[id] = deps;
     records_.push_back(std::make_tuple(id, runnable, num_total_tasks));
 
-    mutex_->unlock();
+    m2_->unlock();
 
     // return immediately
     return id;
@@ -329,12 +331,15 @@ void TaskSystemParallelThreadPoolSleeping::sync() {
     // CS149 students will modify the implementation of this method in Part B.
     //
     int cnt = 0;
+    m2_->lock();
     mutex_->lock();
     while (!jobs_.empty() || !records_.empty() || !worker_cnt_.empty()) {
       mutex_->unlock();
+      m2_->unlock();
 
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
+      m2_->lock();
       mutex_->lock();
 
       // FIXME
@@ -350,4 +355,5 @@ void TaskSystemParallelThreadPoolSleeping::sync() {
       }
     }
     mutex_->unlock();
+    m2_->unlock();
 }
