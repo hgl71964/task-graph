@@ -17,23 +17,23 @@ tests=(
         # "math_operations_in_tight_for_loop_fan_in"
         # "math_operations_in_tight_for_loop_reduction_tree"
         # "spin_between_run_calls"
-        "mandelbrot_chunked_async"
-        "ping_pong_equal_async"
-        "ping_pong_unequal_async"
-        "super_light_async"
-        "super_super_light_async"
-
-        "recursive_fibonacci_async"  # has seg fault
-        # "simple_run_deps_test" # it takes a very long time
-        "math_operations_in_tight_for_loop_async"
-        "math_operations_in_tight_for_loop_fewer_tasks_async"
-        "math_operations_in_tight_for_loop_fan_in_async"
-        "math_operations_in_tight_for_loop_reduction_tree_async"
         "spin_between_run_calls_async"
         "strict_diamond_deps_async"
         "strict_graph_deps_small_async"
         "strict_graph_deps_med_async"
         "strict_graph_deps_large_async"
+
+        "mandelbrot_chunked_async"
+        "ping_pong_equal_async"
+        "ping_pong_unequal_async"
+        "super_light_async"
+        "super_super_light_async"
+        "recursive_fibonacci_async"
+        # "simple_run_deps_test" # it takes a very long time
+        "math_operations_in_tight_for_loop_async"
+        "math_operations_in_tight_for_loop_fewer_tasks_async"
+        "math_operations_in_tight_for_loop_fan_in_async"
+        "math_operations_in_tight_for_loop_reduction_tree_async"
 )
 
 # Print array values in  lines

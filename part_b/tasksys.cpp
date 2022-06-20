@@ -178,12 +178,14 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
           while (true) {
             this->mutex_->lock();
 
-            // mark completed jobs
+            // check completed jobs
+            // XXX task_cnt_ is being updated even if lock is held
 						for (auto it = this->task_cnt_.begin(); it != this->task_cnt_.end(); ) {
 							auto task_id = it->first;
 							auto task_cnt = it->second.load();
 							auto task_total = this->task_total_[task_id];
 
+              // job actually completes
 							if (task_cnt == task_total) {
                 completed_task_ids_.insert(task_id);
 								task_total_.erase(task_id);
@@ -331,7 +333,7 @@ void TaskSystemParallelThreadPoolSleeping::sync() {
     // CS149 students will modify the implementation of this method in Part B.
     //
     mutex_->lock();
-    while (!jobs_.empty() || !records_.empty() || !task_cnt_.empty()) {
+    while (!jobs_.empty() || !records_.empty() || !task_total_.empty()) {
       mutex_->unlock();
 
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
