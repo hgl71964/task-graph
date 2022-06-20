@@ -139,9 +139,9 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
     tid_ = 0;
     mutex_ = new std::mutex();
     m2_ = new std::mutex();
-    m3_ = new std::mutex();
     threads_ = new std::thread[num_threads];
     cv_ = new std::condition_variable();
+    cv2_ = new std::condition_variable();
 
     // start thread pool
     for (auto i = 0; i < num_threads_ - 1; ++i) {
@@ -173,6 +173,7 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
                 // printf("task: %d; ", task_id);
                 this->completed_task_ids_.insert(task_id);
                 this->worker_cnt_.erase(task_id);
+                this->cv2_->notify_all();
                 // this->deps_books_.erase(task_id);
                 // TODO clean-up other bookkeeping data structure?
               }
@@ -283,7 +284,9 @@ TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
 
     delete[] threads_;
     delete mutex_;
+    delete m2_;
     delete cv_;
+    delete cv2_;
 }
 
 void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_total_tasks) {
@@ -330,16 +333,14 @@ void TaskSystemParallelThreadPoolSleeping::sync() {
     //
     // CS149 students will modify the implementation of this method in Part B.
     //
-    m2_->lock();
+    std::unique_lock<std::mutex> lk(*(m2_));
     mutex_->lock();
     while (!jobs_.empty() || !records_.empty() || !worker_cnt_.empty()) {
       mutex_->unlock();
-      m2_->unlock();
 
-      // TODO try not to busy waiting
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      // std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      cv2_->wait_for(lk, std::chrono::milliseconds(100));
 
-      m2_->lock();
       mutex_->lock();
 
       // if (cnt > 10) {
@@ -353,5 +354,5 @@ void TaskSystemParallelThreadPoolSleeping::sync() {
       // }
     }
     mutex_->unlock();
-    m2_->unlock();
+    lk.unlock();
 }
