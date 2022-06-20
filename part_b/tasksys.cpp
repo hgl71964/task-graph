@@ -194,6 +194,7 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
     threads_[num_threads_-1] = std::thread([this] {
           // just busy waiting for now
           while (true) {
+            // ================= m2 critical section ====================
             this->m2_->lock();
 
             // check if job dispatchable
@@ -202,6 +203,7 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
               auto task_id = std::get<0>(record);
               auto deps = this->deps_books_[task_id];
 
+              // ================= mutex critical section ====================
               this->mutex_->lock();
               bool dispatchable = true;
               for (const auto &id: deps) {
@@ -211,6 +213,7 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
                 }
               }
               this->mutex_->unlock();
+              // ================= mutex critical section ====================
 
               if (dispatchable) {
                 dispatchable_list.push_back(record);
@@ -222,30 +225,28 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
                                   record), records_.end());
             }
             this->m2_->unlock();
+            // ================= m2 critical section ====================
 
             // build jobs and dispatch
-            if (!dispatchable_list.empty()) {
-              for (const auto &record: dispatchable_list) {
-                // build & dispatch
-                TaskID task_id = std::get<0>(record);
-                IRunnable* runnable = std::get<1>(record);
-                int num_total_tasks = std::get<2>(record);
+            for (const auto &record: dispatchable_list) {
+              // build & dispatch
+              TaskID task_id = std::get<0>(record);
+              IRunnable* runnable = std::get<1>(record);
+              int num_total_tasks = std::get<2>(record);
 
-                this->mutex_->lock();
-                for (int i = 0; i < this->num_threads_ - 1; ++i) {
-
-                  // NOTE: task granularity: N threads per task
-                  // TODO how to make sure N-threads have all finished this task
-                  jobs_.push(std::make_tuple(task_id, runnable, i,
-                          num_total_tasks, this->num_threads_-1));
-                }
-                this->mutex_->unlock();
-
+              // ================= mutex critical section ====================
+              this->mutex_->lock();
+              worker_cnt_[task_id] = 0; // init count
+              for (int i = 0; i < this->num_threads_ - 1; ++i) {
+                // NOTE: task granularity: N threads per task
+                jobs_.push(std::make_tuple(task_id, runnable, i,
+                        num_total_tasks, this->num_threads_-1));
               }
               // XXX should wake up anyways? in case all sleep but still jobs to run
               this->cv_->notify_all();
+              this->mutex_->unlock();
+              // ================= mutex critical section ====================
             }
-
 
             // exit
             if (this->terminate_) {
@@ -329,29 +330,27 @@ void TaskSystemParallelThreadPoolSleeping::sync() {
     //
     // CS149 students will modify the implementation of this method in Part B.
     //
-    int cnt = 0;
     m2_->lock();
     mutex_->lock();
     while (!jobs_.empty() || !records_.empty() || !worker_cnt_.empty()) {
       mutex_->unlock();
       m2_->unlock();
 
-      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      // TODO try not to busy waiting
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
       m2_->lock();
       mutex_->lock();
 
-      // FIXME
-      cnt++;
-      if (cnt > 10) {
-        printf("jobs -> %ld - %ld\n", jobs_.size(), records_.size());
-        // for (auto it = worker_cnt_.begin(); it != worker_cnt_.end(); ) {
-        //   auto task_id = it->first;
-        //   auto worker_cnt = it->second;
-        //   printf("task %d - %d - %d\n", task_id, worker_cnt, num_threads_-1);
-        //   ++it;
-        // }
-      }
+      // if (cnt > 10) {
+      //   printf("jobs -> %ld - %ld\n", jobs_.size(), records_.size());
+      //   // for (auto it = worker_cnt_.begin(); it != worker_cnt_.end(); ) {
+      //   //   auto task_id = it->first;
+      //   //   auto worker_cnt = it->second;
+      //   //   printf("task %d - %d - %d\n", task_id, worker_cnt, num_threads_-1);
+      //   //   ++it;
+      //   // }
+      // }
     }
     mutex_->unlock();
     m2_->unlock();
