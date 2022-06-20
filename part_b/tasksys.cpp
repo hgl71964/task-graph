@@ -148,7 +148,7 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
     for (auto i = 0; i < num_threads_ - 1; ++i) {
       threads_[i] = std::thread([this] {
           // get lock first
-          std::unique_lock<std::mutex> lk(*(this->m2_));
+          std::unique_lock<std::mutex> lk(*(this->mutex_));
 
           // thread pool loop
           while (true) {
@@ -156,10 +156,27 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
               auto job = this->jobs_.front();
               this->jobs_.pop();
 
-              // run
+              // release lock & parse job & run
               lk.unlock();
-              job();
+              TaskID task_id = std::get<0>(job);
+              IRunnable* runnable = std::get<1>(job);
+              int start_index = std::get<2>(job);
+              int num_total_tasks = std::get<3>(job);
+              int num_worker = std::get<4>(job);
+              for (auto j = start_index; j < num_total_tasks; j += num_worker) {
+                runnable->runTask(j, num_total_tasks);
+              }
               lk.lock();
+
+              // sync jobs status, mark completed; each task is run by `num_worker`
+              worker_cnt_[task_id]++;
+              if (worker_cnt_[task_id] == num_worker) {
+                // printf("task: %d; ", task_id);
+                this->completed_task_ids_.insert(task_id);
+                this->worker_cnt_.erase(task_id);
+                // this->deps_books_.erase(task_id);
+                // TODO clean-up other bookkeeping data structure?
+              }
               continue;
             }
 
@@ -178,30 +195,8 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
     threads_[num_threads_-1] = std::thread([this] {
           // just busy waiting for now
           while (true) {
-
-            // check completed jobs
-            // XXX task_cnt_ is being updated even if lock is held
-            this->m3_->lock();
-						for (auto it = this->task_cnt_.begin(); it != this->task_cnt_.end(); ) {
-							auto task_id = it->first;
-							auto task_cnt = it->second.load();
-							auto task_total = this->task_total_[task_id];
-
-              // job actually completes
-							if (task_cnt == task_total) {
-                completed_task_ids_.insert(task_id);
-								task_total_.erase(task_id);
-                // deps_books_.erase(task_id); // no clean-up to avoid race
-								it = this->task_cnt_.erase(it);
-                printf("task: %d; ", task_id);
-              } else {
-                // printf("task executing: %d - %d - %d\n", task_id, task_cnt, task_total);
-                ++it;
-              }
-            }
-            this->m3_->unlock();
-
             this->mutex_->lock();
+
             // check if job dispatchable
             std::vector<std::tuple<TaskID, IRunnable*, int>> dispatchable_list{};
             for (const auto &record: records_) {
@@ -227,33 +222,27 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
             }
             this->mutex_->unlock();
 
+            // build jobs and dispatch
             if (!dispatchable_list.empty()) {
-              this->m2_->lock();
-              // build jobs and dispatch
               for (const auto &record: dispatchable_list) {
                 // build & dispatch
                 TaskID task_id = std::get<0>(record);
                 IRunnable* runnable = std::get<1>(record);
                 int num_total_tasks = std::get<2>(record);
-                task_cnt_[task_id] = 0;
-                task_total_[task_id] = num_total_tasks;
+
+                this->mutex_->lock();
                 for (int i = 0; i < this->num_threads_ - 1; ++i) {
+
                   // NOTE: task granularity: N threads per task
-                  // NOTE: must capture by copy
-                  // otherwise, num_total_tasks will change across Calls!!!!!
                   // TODO how to make sure N-threads have all finished this task
-                  jobs_.push([i, task_id, num_total_tasks, runnable, this] () -> void {
-                    for (auto j = i; j < num_total_tasks; j += this->num_threads_-1) {
-                      runnable->runTask(j, num_total_tasks);
-                      this->task_cnt_[task_id]++;
-                    }
-                  });
+                  jobs_.push(std::make_tuple(task_id, runnable, i,
+                          num_total_tasks, this->num_threads_-1));
                 }
+                this->mutex_->unlock();
+
               }
-              // XXX should wake up anyways?
-              // in case all sleep but still jobs to run
+              // XXX should wake up anyways? in case all sleep but still jobs to run
               this->cv_->notify_all();
-              this->m2_->unlock();
             }
 
 
@@ -273,6 +262,7 @@ TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
     // Implementations are free to add new class member variables
     // (requiring changes to tasksys.h).
     //
+    // printf("destroy...\n");
     sync(); // ensure all jobs finish
     terminate_ = true;
 
@@ -322,11 +312,11 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
 
     mutex_->lock();
 
+    // build record; push to pending list
     assert(deps_books_.find(id) == deps_books_.end());
     deps_books_[id] = deps;
-
-    // build record; push to pending list
     records_.push_back(std::make_tuple(id, runnable, num_total_tasks));
+
     mutex_->unlock();
 
     // return immediately
@@ -338,21 +328,26 @@ void TaskSystemParallelThreadPoolSleeping::sync() {
     //
     // CS149 students will modify the implementation of this method in Part B.
     //
+    int cnt = 0;
     mutex_->lock();
-    m2_->lock();
-    m3_->lock();
-    while (!jobs_.empty() || !records_.empty() || !task_total_.empty()) {
-      m3_->unlock();
-      m2_->unlock();
+    while (!jobs_.empty() || !records_.empty() || !worker_cnt_.empty()) {
       mutex_->unlock();
 
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
       mutex_->lock();
-      m2_->lock();
-      m3_->lock();
+
+      // FIXME
+      cnt++;
+      if (cnt > 10) {
+        printf("jobs -> %ld - %ld\n", jobs_.size(), records_.size());
+        // for (auto it = worker_cnt_.begin(); it != worker_cnt_.end(); ) {
+        //   auto task_id = it->first;
+        //   auto worker_cnt = it->second;
+        //   printf("task %d - %d - %d\n", task_id, worker_cnt, num_threads_-1);
+        //   ++it;
+        // }
+      }
     }
-    m3_->unlock();
-    m2_->unlock();
     mutex_->unlock();
 }
