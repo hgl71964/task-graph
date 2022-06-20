@@ -193,7 +193,7 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
 								task_total_.erase(task_id);
                 // deps_books_.erase(task_id); // no clean-up to avoid race
 								it = this->task_cnt_.erase(it);
-                // printf("task: %d; ", task_id);
+                printf("task: %d; ", task_id);
               } else {
                 // printf("task executing: %d - %d - %d\n", task_id, task_cnt, task_total);
                 ++it;
