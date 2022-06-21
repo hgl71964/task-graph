@@ -195,41 +195,44 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
     threads_[num_threads_-1] = std::thread([this] {
           // just busy waiting for now
           while (true) {
-            // ================= m2 critical section ====================
-            this->m2_->lock();
+            // make a copy to reduce lock contamination
+            this->mutex_->lock();
+            auto tmp_map = completed_task_ids_;
+            this->mutex_->unlock();
 
+            // ================= m2 critical section ====================
             // check if job dispatchable
-            std::vector<std::tuple<TaskID, IRunnable*, int>> dispatchable_list{};
-            for (const auto &record: records_) {
+            std::tuple<TaskID, IRunnable*, int> record;
+            bool find = false;
+            this->m2_->lock();
+            auto itr = records_.begin();
+            while (itr != records_.end()) {
+              record = (*itr);
               auto task_id = std::get<0>(record);
               auto deps = this->deps_books_[task_id];
 
-              // ================= mutex critical section ====================
-              this->mutex_->lock();
               bool dispatchable = true;
               for (const auto &id: deps) {
-                if (this->completed_task_ids_.find(id) == this->completed_task_ids_.end()) {
+                if (tmp_map.find(id) == tmp_map.end()) {
                   dispatchable = false;
                   break;
                 }
               }
-              this->mutex_->unlock();
-              // ================= mutex critical section ====================
 
+              // find a dispatchable, then break
               if (dispatchable) {
-                dispatchable_list.push_back(record);
+                find = true;
+                itr = records_.erase(itr);
+                break;
+              } else {
+                ++itr;
               }
-            }
-            // delete from submitted data structure
-            for (const auto &record: dispatchable_list) {
-              this->records_.erase(std::remove(records_.begin(), records_.end(),
-                                  record), records_.end());
             }
             this->m2_->unlock();
             // ================= m2 critical section ====================
 
             // build jobs and dispatch
-            for (const auto &record: dispatchable_list) {
+            if (find) {
               // build & dispatch
               TaskID task_id = std::get<0>(record);
               IRunnable* runnable = std::get<1>(record);
@@ -243,7 +246,6 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
                 jobs_.push(std::make_tuple(task_id, runnable, i,
                         num_total_tasks, this->num_threads_));
               }
-              // XXX should wake up anyways? in case all sleep but still jobs to run
               this->cv_->notify_all();
               this->mutex_->unlock();
               // ================= mutex critical section ====================
