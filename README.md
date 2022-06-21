@@ -20,11 +20,11 @@ This assignment will require you to:
 * Implement a task scheduler that reflects dependencies defined by a task graph
 * Understand workload characteristics to make efficient task scheduling decisions
 
-## run benchmark ##
+## Takeaways ##
 
-MUST be aware of the number of thread cannot exceed the available threads in the CPU; otherwises will be slow
+1. MUST be aware of the available threads in the CPU. We can have as many threads as we want, but exceeding the number supported by CPU will be very slow. So the master thread should go to sleep to avoid occupying recources when workers are doing jobs
 
-See below for python test and individual test
+2. TASK execution system should have a master thread and mutiple worker threads; the master thread should go to sleep and wake up when jobs have been done or have new jobs; the worker threads should be asleep until there are new jobs
 
 
 ### HAVEN'T I DONE THIS BEFORE? ###
