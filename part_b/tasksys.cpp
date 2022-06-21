@@ -223,6 +223,11 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
               if (dispatchable) {
                 find = true;
                 itr = records_.erase(itr);
+
+                this->mutex_->lock();
+                this->worker_cnt_[task_id] = 0; // init count
+                this->mutex_->unlock();
+
                 break;
               } else {
                 ++itr;
@@ -240,7 +245,6 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
 
               // ================= mutex critical section ====================
               this->mutex_->lock();
-              this->worker_cnt_[task_id] = 0; // init count
               for (int i = 0; i < this->num_threads_ - 1; ++i) {
                 // NOTE: task granularity: N threads per task
                 jobs_.push(std::make_tuple(task_id, runnable, i,
